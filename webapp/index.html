@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DSE Control Plane Strategy Report</title>
+    <meta
+      name="description"
+      content="Memory-centric DSE control plane, SynTorch, TTT workload axis, related-work radar strategy report"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --surface: #ffffff;
+        --surface-2: #eef2f7;
+        --ink: #151923;
+        --muted: #596271;
+        --line: #d7dde6;
+        --blue: #1f5eff;
+        --green: #07805f;
+        --amber: #b06400;
+        --red: #ba2b35;
+        --violet: #6b4fd1;
+        --shadow: rgba(27, 39, 64, 0.12);
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(90deg, rgba(21, 25, 35, 0.045) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(21, 25, 35, 0.04) 1px, transparent 1px),
+          var(--bg);
+        background-size: 32px 32px;
+        color: var(--ink);
+        font-family: var(--sans);
+        line-height: 1.58;
+      }
+
+      a {
+        color: inherit;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      .shell {
+        width: min(1200px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid rgba(215, 221, 230, 0.92);
+        background: rgba(247, 248, 251, 0.9);
+        backdrop-filter: blur(14px);
+      }
+
+      .topbar-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 58px;
+        gap: 16px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 760;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+
+      .mark {
+        width: 28px;
+        height: 28px;
+        border: 2px solid var(--ink);
+        border-radius: 7px;
+        background:
+          linear-gradient(135deg, transparent 48%, rgba(31, 94, 255, 0.18) 49%),
+          var(--surface);
+        box-shadow: 3px 3px 0 rgba(31, 94, 255, 0.18);
+      }
+
+      nav {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      nav a {
+        flex: 0 0 auto;
+        padding: 8px 9px;
+        border-radius: 7px;
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: none;
+      }
+
+      nav a:hover {
+        background: var(--surface-2);
+        color: var(--ink);
+      }
+
+      header {
+        padding: 54px 0 22px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
+        gap: 28px;
+        align-items: stretch;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 16px;
+        color: var(--muted);
+        font: 700 12px/1 var(--mono);
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 18px;
+        max-width: 820px;
+        font-size: clamp(42px, 7vw, 76px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 760px;
+        margin-bottom: 28px;
+        color: var(--muted);
+        font-size: 19px;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px;
+        padding: 9px 12px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface);
+        color: var(--ink);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: #123ea5;
+        background: var(--blue);
+        color: #fff;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 18px 48px var(--shadow);
+      }
+
+      .hero-panel {
+        padding: 20px;
+      }
+
+      .axis-map {
+        position: relative;
+        min-height: 355px;
+        overflow: hidden;
+      }
+
+      .axis-map svg {
+        width: 100%;
+        height: 100%;
+        min-height: 325px;
+        display: block;
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        font: 700 12px/1 var(--mono);
+      }
+
+      main {
+        padding: 8px 0 80px;
+      }
+
+      section {
+        margin: 18px auto;
+        padding: 26px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      section > .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) minmax(260px, 0.36fr);
+        gap: 24px;
+        align-items: end;
+        margin-bottom: 18px;
+      }
+
+      h2 {
+        margin-bottom: 8px;
+        font-size: clamp(26px, 4vw, 40px);
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .section-note {
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .grid-2,
+      .grid-3,
+      .grid-4 {
+        display: grid;
+        gap: 14px;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .tile {
+        min-height: 140px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .tile h3 {
+        margin-bottom: 8px;
+        font-size: 17px;
+        line-height: 1.22;
+      }
+
+      .tile p,
+      .tile li {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .tag {
+        display: inline-flex;
+        margin: 0 6px 6px 0;
+        padding: 4px 7px;
+        border-radius: 6px;
+        background: var(--surface-2);
+        color: var(--muted);
+        font: 700 11px/1 var(--mono);
+      }
+
+      .quote {
+        margin: 0;
+        padding: 18px;
+        border-left: 5px solid var(--blue);
+        border-radius: 0 8px 8px 0;
+        background: #eef4ff;
+        font-size: 18px;
+        line-height: 1.54;
+      }
+
+      .warning {
+        border-left-color: var(--red);
+        background: #fff1f2;
+      }
+
+      .decision {
+        border-left-color: var(--amber);
+        background: #fff8ec;
+      }
+
+      code,
+      .mono {
+        font-family: var(--mono);
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 5px;
+        background: #edf1f5;
+        color: #0f172a;
+        font-size: 0.92em;
+      }
+
+      .pipeline {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(120px, 1fr));
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      .step {
+        position: relative;
+        min-height: 116px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .step::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: -9px;
+        width: 9px;
+        height: 1px;
+        background: var(--line);
+      }
+
+      .step:last-child::after {
+        display: none;
+      }
+
+      .step b {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .step span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        background: var(--surface);
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 10px 11px;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--surface-2);
+        text-align: left;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 10px;
+      }
+
+      .timeline-row {
+        display: grid;
+        grid-template-columns: 160px minmax(0, 1fr);
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .timeline-row strong {
+        color: var(--blue);
+      }
+
+      .papers {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .paper {
+        display: flex;
+        flex-direction: column;
+        min-height: 430px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-top: 5px solid var(--blue);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .paper:nth-child(2) {
+        border-top-color: var(--green);
+      }
+
+      .paper:nth-child(3) {
+        border-top-color: var(--violet);
+      }
+
+      .paper h3 {
+        margin-bottom: 10px;
+        font-size: 18px;
+      }
+
+      .paper .label {
+        color: var(--muted);
+        font: 700 12px/1 var(--mono);
+        text-transform: uppercase;
+      }
+
+      .paper p {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .risk-list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .risk {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-left: 5px solid var(--red);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .risk:nth-child(2) {
+        border-left-color: var(--amber);
+      }
+
+      .risk:nth-child(3) {
+        border-left-color: var(--green);
+      }
+
+      .footer {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 920px) {
+        .shell {
+          width: min(100% - 28px, 1200px);
+        }
+
+        .hero-grid,
+        section > .section-head,
+        .grid-2,
+        .grid-3,
+        .grid-4,
+        .pipeline,
+        .papers,
+        .risk-list {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-panel {
+          order: -1;
+        }
+
+        .timeline-row {
+          grid-template-columns: 1fr;
+        }
+
+        .step::after {
+          display: none;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .topbar-inner {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 10px 0;
+        }
+
+        h1 {
+          font-size: 38px;
+        }
+
+        .lead {
+          font-size: 16px;
+        }
+
+        section {
+          padding: 18px;
+        }
+
+        th,
+        td {
+          padding: 8px;
+          font-size: 13px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="shell topbar-inner">
+        <div class="brand">
+          <span class="mark" aria-hidden="true"></span>
+          <span>DSE Control Plane</span>
+        </div>
+        <nav aria-label="Report sections">
+          <a href="#definition">정의</a>
+          <a href="#ir">IR</a>
+          <a href="#critical-path">임계경로</a>
+          <a href="#papers">논문/특허</a>
+          <a href="#radar">Radar</a>
+          <a href="#risks">Risk</a>
+        </nav>
+      </div>
+    </div>
+
+    <header class="shell">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">source: session_memory_dse_controlplane.yaml · schema 0.1</p>
+          <h1>Memory-centric DSE를 위한 explorer's instrument</h1>
+          <p class="lead">
+            본업은 web UI가 아니라, <b>end-to-end simulation platform control plane</b>이다.
+            목적은 AI workload와 memory-system 가설을 같은 IR 위에서 재현 가능하게 비교하고,
+            moving axis를 evidence로 추적하는 것이다.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#critical-path">Open Decision 보기</a>
+            <a class="button" href="#papers">Paper Pipeline</a>
+            <a class="button" href="#radar">Novelty Radar</a>
+          </div>
+          <div class="meta-row">
+            <span class="pill">generated_run_id: dse-controlplane-strategy-2026-06-27</span>
+            <span class="pill">한국어 보고서</span>
+            <span class="pill">English technical terms</span>
+          </div>
+        </div>
+
+        <div class="panel hero-panel" aria-label="Evidence axis map">
+          <div class="axis-map">
+            <svg viewBox="0 0 620 390" role="img" aria-label="OTel, SynTorch, ServingSim and ASTRA-sim feed a memory annotated IR and comparable projection">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#596271"></path>
+                </marker>
+                <filter id="softShadow" x="-10%" y="-10%" width="120%" height="125%">
+                  <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#1b2740" flood-opacity="0.14"></feDropShadow>
+                </filter>
+              </defs>
+              <rect x="16" y="18" width="172" height="78" rx="8" fill="#fff" stroke="#d7dde6" filter="url(#softShadow)"></rect>
+              <text x="36" y="48" font-size="18" font-weight="700" fill="#151923">Real axis</text>
+              <text x="36" y="73" font-size="13" fill="#596271">vLLM · LMCache · OTel</text>
+              <rect x="16" y="156" width="172" height="78" rx="8" fill="#fff" stroke="#d7dde6" filter="url(#softShadow)"></rect>
+              <text x="36" y="186" font-size="18" font-weight="700" fill="#151923">Synthetic axis</text>
+              <text x="36" y="211" font-size="13" fill="#596271">SynTorch · Chakra trace</text>
+              <rect x="16" y="294" width="172" height="78" rx="8" fill="#fff" stroke="#d7dde6" filter="url(#softShadow)"></rect>
+              <text x="36" y="324" font-size="18" font-weight="700" fill="#151923">Simulation axis</text>
+              <text x="36" y="349" font-size="13" fill="#596271">ServingSim · ASTRA-sim</text>
+
+              <rect x="260" y="126" width="150" height="138" rx="10" fill="#eef4ff" stroke="#1f5eff" stroke-width="2" filter="url(#softShadow)"></rect>
+              <text x="292" y="166" font-size="20" font-weight="800" fill="#151923">Memory</text>
+              <text x="286" y="193" font-size="20" font-weight="800" fill="#151923">Annotated IR</text>
+              <text x="286" y="225" font-size="13" fill="#596271">tensor nodes</text>
+              <text x="286" y="245" font-size="13" fill="#596271">movement edges</text>
+
+              <rect x="482" y="126" width="120" height="138" rx="10" fill="#ecf8f4" stroke="#07805f" stroke-width="2" filter="url(#softShadow)"></rect>
+              <text x="508" y="174" font-size="19" font-weight="800" fill="#151923">Metric</text>
+              <text x="498" y="201" font-size="19" font-weight="800" fill="#151923">Projection</text>
+              <text x="500" y="234" font-size="13" fill="#596271">capacity</text>
+              <text x="500" y="254" font-size="13" fill="#596271">traffic · latency</text>
+
+              <path d="M188 57 C220 58 228 150 260 168" fill="none" stroke="#596271" stroke-width="2" marker-end="url(#arrow)"></path>
+              <path d="M188 195 L260 195" fill="none" stroke="#596271" stroke-width="2" marker-end="url(#arrow)"></path>
+              <path d="M188 333 C220 332 228 240 260 222" fill="none" stroke="#596271" stroke-width="2" marker-end="url(#arrow)"></path>
+              <path d="M410 195 L482 195" fill="none" stroke="#596271" stroke-width="2" marker-end="url(#arrow)"></path>
+              <text x="286" y="102" font-size="12" font-family="monospace" fill="#596271">one schema · L0/L1/L2 fill levels</text>
+              <text x="452" y="300" font-size="12" font-family="monospace" fill="#596271">capacity vs bandwidth = output</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section id="definition">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">1. Definition</p>
+            <h2>본업은 UI가 아니라 experiment instrument</h2>
+          </div>
+          <p class="section-note">
+            UI는 조작 표면이고, 본체는 reproducible experiment pipeline과 memory-annotated IR이다.
+          </p>
+        </div>
+
+        <div class="pipeline">
+          <div class="step"><b>workload</b><span>model, serving mode, context, TTT-class behavior</span></div>
+          <div class="step"><b>hw config</b><span>memory tier, capacity, bandwidth, tiling strategy</span></div>
+          <div class="step"><b>trace</b><span>OTel, Chakra, ServingSim output</span></div>
+          <div class="step"><b>metric</b><span>capacity pressure, traffic, latency, movement bytes</span></div>
+          <div class="step"><b>projection</b><span>DB row, comparable view, device-roadmap evidence</span></div>
+        </div>
+
+        <div class="grid-2" style="margin-top: 14px">
+          <blockquote class="quote">
+            확인된 범위에서의 가설: 기존 memory-centric 연구는 architecture를 주장하고, 기존 DSE tool은 fixed device class 안에서 optimize한다.
+            여기서 노리는 빈자리는 <b>device class 미정 상태에서 축을 흔들며 가설을 싸게 실험하는 instrument</b>다.
+          </blockquote>
+          <blockquote class="quote decision">
+            <b>positioning:</b> solver가 아니라 instrument. 자동 최적해 탐색이 아니라 domain expert가 memory/workload axis를 움직이고 evidence를 쌓는 explorer's instrument.
+          </blockquote>
+        </div>
+      </section>
+
+      <section id="ir">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">2. IR / Schema</p>
+            <h2>Metric causal chain에 걸리는 것만 1급 field</h2>
+          </div>
+          <p class="section-note">
+            schema는 빼는 게 지옥이다. 초기에는 causal field와 opaque attributes를 분리한다.
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <div class="tile">
+            <h3>node / op</h3>
+            <span class="tag">input tensor refs</span>
+            <span class="tag">output tensor refs</span>
+            <span class="tag">working set</span>
+            <p>op 생존 중 필요한 working set을 capacity pressure의 최소 근거로 둔다.</p>
+          </div>
+          <div class="tile">
+            <h3>tensor</h3>
+            <span class="tag">size</span>
+            <span class="tag">dtype</span>
+            <span class="tag">allocated_at</span>
+            <span class="tag">freed_at</span>
+            <span class="tag">residency</span>
+            <span class="tag">tiling strategy id</span>
+          </div>
+          <div class="tile">
+            <h3>movement edge</h3>
+            <span class="tag">src tier</span>
+            <span class="tag">dst tier</span>
+            <span class="tag">bytes</span>
+            <span class="tag">sync / async</span>
+            <p>data movement를 first-class edge로 둬야 traffic과 latency의 causal chain을 잃지 않는다.</p>
+          </div>
+        </div>
+
+        <table aria-label="IR fill levels">
+          <thead>
+            <tr>
+              <th>Fill level</th>
+              <th>의미</th>
+              <th>첫 사용</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>L0</b></td>
+              <td>op-level graph + tensor size/lifetime</td>
+              <td>capacity peak, rough traffic, ServingSim first projection</td>
+            </tr>
+            <tr>
+              <td><b>L1</b></td>
+              <td>memory tier residency + per-tier movement bytes</td>
+              <td>partitioning/tiling이 metric에 미치는 영향 가시화</td>
+            </tr>
+            <tr>
+              <td><b>L2</b></td>
+              <td>kernel-level tiling schedule, intra-kernel reuse, hw-optimal runtime logic</td>
+              <td>SynTorch가 vLLM에 붙은 뒤</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="section-note">
+          L0/L1/L2는 서로 다른 schema가 아니라 같은 schema의 fill level이다. source adapter가 못 채우는 값은 명시적 <code>null</code>로 둔다.
+        </p>
+      </section>
+
+      <section id="critical-path">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">3. Critical Path</p>
+            <h2>지금 필요한 것은 first projection과 trust ladder</h2>
+          </div>
+          <p class="section-note">
+            source-agnostic control plane을 먼저 세우고, SynTorch와 TTT를 같은 IR로 합류시킨다.
+          </p>
+        </div>
+
+        <div class="timeline">
+          <div class="timeline-row">
+            <strong>지금</strong>
+            <div>SynTorch ↔ A100 / OTel 검증 golden test + L0 IR paper validation. P1 생존조건이자 control plane 척추.</div>
+          </div>
+          <div class="timeline-row">
+            <strong>병렬</strong>
+            <div>좁은 keyword radar를 시작해 DeepStack, Minsoo Rhu, TTT writeback traffic 누락 위험을 줄인다.</div>
+          </div>
+          <div class="timeline-row">
+            <strong>다음</strong>
+            <div>추론: ServingSim을 source A로 먼저 연결해 source-agnostic first projection을 만든다.</div>
+          </div>
+          <div class="timeline-row">
+            <strong>그 후</strong>
+            <div>SynTorch를 source B로 합류시키고, TTT-class workload를 future writeback-memory axis로 추가한다.</div>
+          </div>
+        </div>
+
+        <blockquote class="quote decision" style="margin-top: 16px">
+          <b>Open decision:</b> 이번 주 착수는 (a) 좁은 radar 먼저 vs (b) SynTorch 검증 golden test 먼저. 둘 다 급함. "안 돌면 더 불안한 쪽"으로 선택. 이 webapp은 자동 선택하지 않는다.
+        </blockquote>
+      </section>
+
+      <section id="papers">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">4. Paper / Patent Pipeline</p>
+            <h2>P1 도구 → P2 방법론 → P3 미래 축</h2>
+          </div>
+          <p class="section-note">
+            P3는 출력이지 입력이 아니다. P1/P2의 신뢰사다리 없이 TTT paper를 단정하지 않는다.
+          </p>
+        </div>
+
+        <div class="papers">
+          <article class="paper">
+            <p class="label">P1 · Tool</p>
+            <h3>SynTorch: An Executable Synthetic Frontend for Memory-Centric Design Space Exploration of Unbuilt AI Hardware</h3>
+            <p>PyTorch-like frontend와 abstract backend로 unbuilt memory system 위에서 hardware-optimal Chakra trace를 만든다.</p>
+            <p><b>Venue:</b> ASPLOS, MICRO, MLSys workshop fallback</p>
+            <p><b>Patent:</b> virtual memory hierarchy 위 executable trace 생성 + capacity/traffic 유도.</p>
+            <p><b>Survival:</b> A100 / OTel 대비 trace validation.</p>
+          </article>
+          <article class="paper">
+            <p class="label">P2 · Method</p>
+            <h3>Tracking the Moving Axes: Evidence-Based Projection of Memory Demand Shifts in Evolving AI Workloads</h3>
+            <p>OTel, SynTorch, ServingSim/ASTRA-sim을 하나의 memory-annotated IR로 통합해 capacity vs bandwidth 비율의 이동을 추적한다.</p>
+            <p><b>Venue:</b> ISCA vision/projection, IEEE Micro, HotInfra</p>
+            <p><b>Patent:</b> heterogeneous trace 통합 IR + dependent-variable ratio movement detection.</p>
+          </article>
+          <article class="paper">
+            <p class="label">P3 · Future Axis</p>
+            <h3>When Inference Writes Back: The Memory Traffic Signature of Test-Time Training and Its Architectural Implications</h3>
+            <p>TTT는 inference 중 weight update를 만들며 gradient, optimizer state, write traffic, updated weight reuse라는 새 memory axis를 만든다.</p>
+            <p><b>Venue:</b> HotChips, HotInfra, ASPLOS WACI, later MICRO/ISCA</p>
+            <p><b>Patent:</b> inference write traffic을 겨냥한 memory device structure.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="radar">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">5. Novelty Radar</p>
+            <h2>Related work는 support가 아니라 생존장비</h2>
+          </div>
+          <p class="section-note">
+            아래 항목은 radar seed다. citation과 최신성은 검증 전까지 단정하지 않는다.
+          </p>
+        </div>
+
+        <table aria-label="Related work differentiation">
+          <thead>
+            <tr>
+              <th>연구</th>
+              <th>한줄정체</th>
+              <th>우리와의 경계</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>DeepStack</b></td>
+              <td>source memo 기준: 3D-stacked DRAM / LLM serving DSE를 정밀 모델링하는 가까운 threat.</td>
+              <td>known device class optimization vs unknown device class / moving-axis discovery instrument. 12% validation claim은 별도 검증 필요.</td>
+            </tr>
+            <tr>
+              <td><b>Minsoo Rhu line / MC-DLA</b></td>
+              <td>memory-centric architecture proposal과 workload characterization의 가까운 선행 축.</td>
+              <td>architecture proposal vs architecture discovery/testing instrument.</td>
+            </tr>
+            <tr>
+              <td><b>MemOS</b></td>
+              <td>memory를 first-class resource로 보는 execution paradigm / scaling pressure reference.</td>
+              <td>paradigm claim vs trace-backed projection instrument.</td>
+            </tr>
+            <tr>
+              <td><b>SECDA-DSE</b></td>
+              <td>LLM을 DSE loop에 넣어 automatic solver처럼 탐색하는 접근.</td>
+              <td>fixed-space solver vs human-directed explorer's instrument.</td>
+            </tr>
+            <tr>
+              <td><b>Mutlu / Memory-Centric Computing</b></td>
+              <td>processor-centric 사고의 한계를 짚는 broad memory-centric foundation.</td>
+              <td>foundation framing vs AI workload trace / IR / control-plane contribution.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="tile" style="margin-top: 14px">
+          <h3>Radar keywords</h3>
+          <span class="tag">memory-centric DSE</span>
+          <span class="tag">memory device for LLM inference</span>
+          <span class="tag">executable trace synthetic frontend</span>
+          <span class="tag">test-time training memory traffic</span>
+          <span class="tag">Chakra trace memory</span>
+          <span class="tag">3D-stacked DRAM LLM serving DSE</span>
+        </div>
+      </section>
+
+      <section id="risks">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">6. Risk Register</p>
+            <h2>검증되지 않은 trace 위에 device spec을 세우면 무너진다</h2>
+          </div>
+          <p class="section-note">
+            CODE-VERIFIED > DOCUMENTATION. 보고서의 claims는 검증 상태를 분리해서 다룬다.
+          </p>
+        </div>
+
+        <div class="risk-list">
+          <div class="risk">
+            <h3>A안 fixed tiling</h3>
+            <p>가장 약한 고리. tiling/partitioning이 틀리면 trace도 틀리고, 역산한 memory device spec도 흔들린다.</p>
+          </div>
+          <div class="risk">
+            <h3>SynTorch ↔ vLLM 미연결</h3>
+            <p>숨기면 안 되는 현재 blocker. 추론: ServingSim을 source A로 먼저 두고 SynTorch는 source B로 합류시킨다.</p>
+          </div>
+          <div class="risk">
+            <h3>Related-work freshness</h3>
+            <p>DeepStack, Rhu line, SECDA-DSE, TTT writeback-memory work를 놓치면 novelty가 바로 흔들린다.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="source">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">7. Source / Guardrails</p>
+            <h2>Append-only report surface</h2>
+          </div>
+          <p class="section-note">
+            이 webapp은 `session_memory_dse_controlplane.yaml` 기반 보고서의 presentation surface다.
+          </p>
+        </div>
+
+        <div class="grid-2">
+          <div class="tile">
+            <h3>Generated artifacts</h3>
+            <p class="mono">reports/A_strategy_brief.md</p>
+            <p class="mono">reports/B_paper_patent_pipeline.md</p>
+            <p class="mono">watchlist/citations.jsonl</p>
+            <p class="mono">watchlist/radar_keywords.txt</p>
+          </div>
+          <div class="tile">
+            <h3>Enforcement</h3>
+            <p>원본 YAML은 append-only로 보존한다. YAML 밖 판단은 <code>추론:</code>으로 표시한다. related-work는 최초/유일로 단정하지 않고, confirmed-range hypothesis로만 다룬다.</p>
+          </div>
+        </div>
+      </section>
+
+      <p class="footer">
+        DSE Control Plane Strategy Report · generated from local OpenClaw workspace · 2026-06-27
+      </p>
+    </main>
+  </body>
+</html>
