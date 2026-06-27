@@ -1,34 +1,50 @@
-# Company AI Workbench Architecture
+# Company AI Workbench — Program-Level Architecture
 
-## Working Name
+> **Scope note.** This document is **program-level context** only: shared vocabulary and
+> recurring design patterns (layer model, memory-annotated IR, trust ladder) that several
+> products happen to reuse. It is **not** a shared runtime substrate. Each product
+> (CAW-01..06) is an **independent product** with its own architecture under
+> `products/caw-0X-*/design/`. Any cross-product dependency is an **export boundary** —
+> one product publishes an artifact another product consumes — not a shared platform.
 
-`Memory-Centric AI Workbench`
+## Independent Products
 
-## Product Interpretation
+The six efforts are separate products, each separately implemented and deployed:
 
-The first visible product is an end-to-end simulation platform control plane.
+- CAW-01 — simulation control plane,
+- CAW-02 — knowledge repository,
+- CAW-03 — paper/patent harness,
+- CAW-04 — tips/skills website + REST API,
+- CAW-05 — trend collection,
+- CAW-06 — AI-future / TTT research.
 
-The deeper system is a shared workbench for:
+When one product needs another's output, it imports a published artifact across an export
+boundary (e.g. a file, dataset, or API response). Products do not share a database, UI, or
+service layer.
 
-- team/personal knowledge,
-- simulation runs,
-- claim/evidence/result tracking,
-- paper/patent artifacts,
-- reusable AI skills/workflows,
-- scheduled technical intelligence,
-- future-AI experiments.
+## Patterns Worth Reusing Per Product
 
-## Core Thesis
+The remainder of this document describes thinking that has proven useful and is likely to
+recur. Treat it as a menu each product can draw from, not a contract.
 
-The workbench is an instrument, not a solver.
+### Instrument, not solver (CAW-01 thesis)
 
-Traditional DSE searches for an optimum inside a fixed design space. Jimmy's company-side opportunity is different: device class and workload axes may be unknown, moving, or newly created by future AI workloads.
+The simulation control plane is an instrument, not a solver.
 
-The system should help a domain expert move, add, and test design-space axes cheaply, then preserve the evidence chain from workload hypothesis to memory-device implication.
+Traditional DSE searches for an optimum inside a fixed design space. The company-side
+opportunity is different: device class and workload axes may be unknown, moving, or newly
+created by future AI workloads.
 
-Capacity vs bandwidth is therefore not the starting question. It is an output variable produced by workload axes.
+The product should help a domain expert move, add, and test design-space axes cheaply, then
+preserve the evidence chain from workload hypothesis to memory-device implication.
 
-## Layer Model
+Capacity vs bandwidth is therefore not the starting question. It is an output variable
+produced by workload axes.
+
+## Layer Model (reusable pattern)
+
+A product that ingests evidence and produces auditable artifacts can structure itself in
+layers. Not every product needs every layer.
 
 ### 1. Source Layer
 
@@ -67,11 +83,12 @@ Canonical entities:
 - `Decision`
 - `Assumption`
 
-The key invariant: claims must point to evidence. Generated summaries are not evidence by themselves.
+The key invariant: claims must point to evidence. Generated summaries are not evidence by
+themselves.
 
 ### 3. Workflow Layer
 
-TaskOps-style workflows:
+TaskOps-style workflows, scoped to whatever the product does, e.g.:
 
 - ingestion workflow,
 - claim extraction workflow,
@@ -83,9 +100,11 @@ TaskOps-style workflows:
 
 Each workflow should produce an auditable artifact, not just a chat answer.
 
-### 4. Simulation Layer
+### 4. Simulation Layer (CAW-01)
 
-Initial company workflow:
+This layer is specific to the simulation control plane.
+
+Initial workflow:
 
 `input feeder -> LLMServingSim -> syntorch -> AstraSim + SST`
 
@@ -111,13 +130,15 @@ One experiment should become:
 
 `(workload, hardware config, simulation config) -> trace -> metric -> DB row -> comparable projection`
 
-### 4.1 Memory-Annotated IR
+### 4.1 Memory-Annotated IR (CAW-01)
 
-The IR/schema boundary is the critical design surface.
+The IR/schema boundary is the critical design surface for CAW-01.
 
 Principle:
 
-> If a field changes the causal chain for memory traffic, capacity pressure, latency, or related metrics, it should become a first-class schema field. Otherwise it should remain an opaque attribute.
+> If a field changes the causal chain for memory traffic, capacity pressure, latency, or
+> related metrics, it should become a first-class schema field. Otherwise it should remain
+> an opaque attribute.
 
 Backbone:
 
@@ -163,6 +184,8 @@ Each artifact should have:
 - review status,
 - publishability status.
 
+Artifacts are also the natural unit of the **export boundary** between products.
+
 ### 6. Publishing/API Layer
 
 Surfaces:
@@ -176,7 +199,7 @@ Surfaces:
 
 Public outputs must be generated from public-safe sources only.
 
-## First Vertical Slice
+## First Vertical Slice (CAW-01)
 
 Build the smallest slice that demonstrates:
 
@@ -185,7 +208,7 @@ Build the smallest slice that demonstrates:
 3. A simulation run record is created.
 4. Output artifacts and metrics are registered.
 5. A generated explanation cites the source claims and run outputs.
-6. The result can feed a paper/patent/report draft.
+6. The result can feed a paper/patent/report draft (via export boundary).
 
 Updated first validation target:
 
@@ -195,9 +218,9 @@ Updated first validation target:
 4. Preserve sources, assumptions, and projection outputs.
 5. Produce a comparison view that can later become a paper/patent evidence artifact.
 
-## Trust Ladder
+## Trust Ladder (CAW-01)
 
-For future-AI/TTT claims, the system needs a trust ladder:
+For future-AI/TTT claims, the product needs a trust ladder:
 
 1. Syntorch must make unbuilt-device assumptions executable.
 2. Runtime/tiling assumptions must be represented as code or explicit strategy ids, not prose.
@@ -208,9 +231,9 @@ Weakest link to protect:
 - trace credibility, especially syntorch trace validation against A100/OTel evidence,
 - fixed human-designed tiling/partitioning assumptions.
 
-## Design Bias
+## Design Bias (CAW-01)
 
-The system should feel like a control plane, not a chatbot.
+The simulation control plane should feel like a control plane, not a chatbot.
 
 Primary UI concepts:
 
@@ -220,3 +243,4 @@ Primary UI concepts:
 - blockers,
 - artifact readiness,
 - next honest action.
+</content>
