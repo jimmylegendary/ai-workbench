@@ -1,25 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, type MouseEvent } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbenchStore } from "@/store/workbenchStore";
 import {
-  c3Tree,
+  c3PartsById,
+  resolveC3Level,
   type HwTreeNode,
 } from "@/features/simulation/model/fixtures/c3";
+import { CanvasFrame } from "../CanvasFrame";
+import { DrillHint } from "../DrillHint";
 
 /**
- * Canvas 3 — Hardware design (2D drill-down fallback per ADR-0004; the r3f 3D
- * scene is a phase-2 spike). Renders the hardware hierarchy
- * (cluster ─► rack ─► tray ─► package ─► die ─► chip ─► component) as a compact,
- * instrument-like tree. Picking a row publishes the domain `partId` to the
- * shared store via select({canvas:'c3', partId}) — never a raw renderer object.
- * The selected part rings cyan here (and is read back by PartInspector +
- * highlighted on Canvas 1/2 through the shared selection).
+ * Canvas 3 — Hardware design, as a FRACTAL hardware schematic / floorplan.
+ * The current drill level (store: drill.c3, an array of partIds) renders its
+ * child parts as nested rectangles on the dark canvas — a board/package/die
+ * layout, sized to fill — each labelled with a mono spec readout.
+ *
+ *   Plain click       → select({canvas:'c3', partId})  (cross-canvas pick)
+ *   Ctrl/⌘+click       → drillInto('c3', partId)        (descend; parts WITH children)
+ *   breadcrumb crumb i → drillTo('c3', i-1)             (ascend)
+ *
+ * Read-only instrument layout; color only carries the part's level. The picked
+ * partId is published to the shared store and read back by PartInspector and the
+ * inline spec readout below.
  */
 
-/** Level → Badge tone. Color pairs with the level text (color-blind-safe). */
+/** Level → Badge tone (color pairs with the level text — color-blind-safe). */
 const levelTone = {
   cluster: "running",
   rack: "running",
@@ -33,111 +41,168 @@ const levelTone = {
   "neutral" | "running" | "success" | "danger" | "warning"
 >;
 
-/** Collect every partId that has children, so the tree starts fully drilled. */
-function collectExpandable(node: HwTreeNode, acc: Set<string>): Set<string> {
-  if (node.children && node.children.length > 0) {
-    acc.add(node.partId);
-    node.children.forEach((c) => collectExpandable(c, acc));
-  }
-  return acc;
-}
+/** Near-square column count to lay N rectangles out to fill the area. */
+const gridCols = (n: number): number => Math.max(1, Math.ceil(Math.sqrt(n)));
 
 export function HardwareTreeC3() {
-  const selectedPartId = useWorkbenchStore((s) => s.selection.partId);
-  const selectedCanvas = useWorkbenchStore((s) => s.selection.canvas);
+  const selection = useWorkbenchStore((s) => s.selection);
   const select = useWorkbenchStore((s) => s.select);
+  const drill = useWorkbenchStore((s) => s.drill.c3);
+  const drillInto = useWorkbenchStore((s) => s.drillInto);
+  const drillTo = useWorkbenchStore((s) => s.drillTo);
+  const drillUp = useWorkbenchStore((s) => s.drillUp);
 
-  const [expanded, setExpanded] = useState<Set<string>>(() =>
-    collectExpandable(c3Tree, new Set<string>()),
-  );
+  const { parts, crumbs } = useMemo(() => resolveC3Level(drill), [drill]);
 
-  const toggle = (partId: string): void =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(partId)) next.delete(partId);
-      else next.add(partId);
-      return next;
-    });
+  const selectedPart =
+    selection.canvas === "c3" && selection.partId
+      ? c3PartsById[selection.partId]
+      : undefined;
 
-  const rows: HwTreeNode[] = [];
-  const depthOf = new Map<string, number>();
-  const flatten = (node: HwTreeNode, depth: number): void => {
-    rows.push(node);
-    depthOf.set(node.partId, depth);
-    if (expanded.has(node.partId)) {
-      node.children?.forEach((c) => flatten(c, depth + 1));
-    }
+  const onPartClick = (event: MouseEvent<HTMLButtonElement>, part: HwTreeNode): void => {
+    const hasChildren = !!part.children && part.children.length > 0;
+    if ((event.ctrlKey || event.metaKey) && hasChildren) drillInto("c3", part.partId);
+    else select({ canvas: "c3", partId: part.partId });
   };
-  flatten(c3Tree, 0);
+
+  const frameCrumbs = crumbs.map((c, i) => ({
+    label: c.label,
+    onClick: () => drillTo("c3", i - 1),
+  }));
+
+  const cols = gridCols(parts.length);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[var(--radius-md)] border border-canvas-grid bg-canvas-bg">
-      <div className="flex shrink-0 items-center justify-between border-b border-canvas-grid px-2 py-1">
-        <span className="font-readout text-[10px] uppercase tracking-wide text-[#8b96a5]">
-          C3 · Hardware
-        </span>
-        <span className="font-readout text-[10px] text-[#566273]">
-          2D fallback
-        </span>
-      </div>
-
-      <ul className="min-h-0 flex-1 overflow-auto p-1">
-        {rows.map((node) => {
-          const depth = depthOf.get(node.partId) ?? 0;
-          const hasChildren = !!node.children && node.children.length > 0;
-          const isOpen = expanded.has(node.partId);
-          const isSelected =
-            selectedCanvas === "c3" && selectedPartId === node.partId;
-          return (
-            <li key={node.partId}>
-              <div
-                className={cn(
-                  "group flex items-center gap-1 rounded-[var(--radius-sm)] border px-1.5 py-1",
-                  "transition-colors duration-150",
-                  isSelected
-                    ? "border-accent bg-accent/15 ring-2 ring-accent"
-                    : "border-transparent bg-surface/95 hover:bg-surface",
-                )}
-                style={{ marginLeft: depth * 12 }}
-              >
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    onClick={() => toggle(node.partId)}
-                    aria-label={isOpen ? "Collapse" : "Expand"}
-                    aria-expanded={isOpen}
-                    className="font-readout w-3 shrink-0 text-[10px] text-text-muted hover:text-text"
-                  >
-                    {isOpen ? "▾" : "▸"}
-                  </button>
-                ) : (
-                  <span aria-hidden className="w-3 shrink-0" />
-                )}
-
+    <CanvasFrame
+      title="C3 · Hardware"
+      crumbs={frameCrumbs}
+      focused={selection.canvas === "c3"}
+      canBack={drill.length > 0}
+      onBack={() => drillUp("c3")}
+      onActivate={() => select({ canvas: "c3" })}
+    >
+      <div className="relative h-full w-full overflow-hidden bg-canvas-bg">
+        {parts.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="font-readout text-xs text-[#566273]">— leaf part: no interior —</p>
+          </div>
+        ) : (
+          <div
+            className="grid h-full w-full gap-2 p-2"
+            style={{
+              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+              gridAutoRows: "minmax(0, 1fr)",
+            }}
+          >
+            {parts.map((part) => {
+              const children = part.children ?? [];
+              const hasChildren = children.length > 0;
+              const isSelected =
+                selection.canvas === "c3" && selection.partId === part.partId;
+              const specEntries = Object.entries(part.spec).slice(0, 2);
+              const innerCols = gridCols(children.length);
+              return (
                 <button
+                  key={part.partId}
                   type="button"
-                  onClick={() => select({ canvas: "c3", partId: node.partId })}
-                  title={node.partId}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  onClick={(e) => onPartClick(e, part)}
+                  title={
+                    hasChildren ? `${part.partId} — Ctrl+click to drill in` : part.partId
+                  }
+                  className={cn(
+                    "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-sm)]",
+                    "border bg-surface/[0.04] p-1.5 text-left transition-colors",
+                    isSelected
+                      ? "border-accent ring-2 ring-accent"
+                      : "border-canvas-grid hover:border-text-muted",
+                  )}
                 >
-                  <Badge tone={levelTone[node.level]}>{node.level}</Badge>
-                  <span
-                    className={cn(
-                      "font-readout truncate text-xs",
-                      isSelected ? "text-accent" : "text-text",
+                  {/* header: level badge + name + partId */}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Badge tone={levelTone[part.level]}>{part.level}</Badge>
+                    <span
+                      className={cn(
+                        "font-readout truncate text-xs",
+                        isSelected ? "text-accent" : "text-text",
+                      )}
+                    >
+                      {part.name}
+                    </span>
+                    {hasChildren && (
+                      <span
+                        aria-hidden
+                        className="ml-auto shrink-0 font-readout text-[10px] text-[#566273] group-hover:text-accent"
+                      >
+                        ↘
+                      </span>
                     )}
-                  >
-                    {node.name}
-                  </span>
-                  <span className="font-readout ml-auto shrink-0 text-[10px] text-text-muted">
-                    {node.partId}
-                  </span>
+                  </div>
+
+                  {/* key spec readout */}
+                  <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5">
+                    {specEntries.map(([key, value]) => (
+                      <span
+                        key={key}
+                        className="font-readout truncate text-[10px] text-text-muted"
+                      >
+                        {key} <span className="tabular-nums text-text">{value}</span>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* nested floorplan preview: this part's children as faint rectangles */}
+                  {hasChildren && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none mt-1.5 grid min-h-0 flex-1 gap-1"
+                      style={{
+                        gridTemplateColumns: `repeat(${innerCols}, minmax(0, 1fr))`,
+                        gridAutoRows: "minmax(0, 1fr)",
+                      }}
+                    >
+                      {children.map((child) => (
+                        <div
+                          key={child.partId}
+                          className="flex min-h-0 min-w-0 items-center justify-center rounded-[2px] border border-canvas-grid bg-canvas-bg/50 px-1"
+                        >
+                          <span className="font-readout truncate text-[9px] leading-none text-[#566273]">
+                            {child.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* selected-part spec readout (inline; PartInspector reads the same partId) */}
+        {selectedPart && (
+          <div className="pointer-events-none absolute bottom-1.5 left-2 z-10 max-w-[60%] rounded-[var(--radius-sm)] border border-canvas-grid bg-canvas-bg/90 px-2 py-1.5">
+            <div className="flex items-center gap-1.5">
+              <Badge tone={levelTone[selectedPart.level]}>{selectedPart.level}</Badge>
+              <span className="font-readout truncate text-xs text-accent">
+                {selectedPart.name}
+              </span>
+              <span className="font-readout shrink-0 text-[9px] text-[#566273]">
+                {selectedPart.partId}
+              </span>
+            </div>
+            <dl className="mt-1 flex flex-col gap-0.5 font-readout text-[10px]">
+              {Object.entries(selectedPart.spec).map(([key, value]) => (
+                <div key={key} className="flex items-baseline gap-3">
+                  <dt className="text-text-muted">{key}</dt>
+                  <dd className="ml-auto tabular-nums text-text">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+
+        <DrillHint />
+      </div>
+    </CanvasFrame>
   );
 }

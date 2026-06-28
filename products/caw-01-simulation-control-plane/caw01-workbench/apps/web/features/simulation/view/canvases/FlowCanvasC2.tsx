@@ -15,12 +15,14 @@ import {
 } from "@xyflow/react";
 import { useWorkbenchStore } from "@/store/workbenchStore";
 import {
-  c2Edges,
-  c2Nodes,
+  c2Graph,
   type ServingFlowEdge,
   type ServingFlowNode,
 } from "@/features/simulation/model/fixtures/c2";
+import { resolveLevel } from "@/features/simulation/model/fractal";
 import { ServingNode } from "./nodes/ServingNode";
+import { CanvasFrame } from "../CanvasFrame";
+import { DrillHint } from "../DrillHint";
 
 const nodeTypes: NodeTypes = { serving: ServingNode };
 
@@ -30,8 +32,6 @@ function styleEdge(edge: ServingFlowEdge): ServingFlowEdge {
   const stroke = valid ? "var(--primary)" : "var(--danger)";
   return {
     ...edge,
-    // No ambient animation: DESIGN.md §7 reserves motion (cyan) for a running
-    // stream only. Valid = primary solid; invalid = danger dashed + reason.
     style: {
       stroke,
       strokeWidth: 1.5,
@@ -47,57 +47,80 @@ function styleEdge(edge: ServingFlowEdge): ServingFlowEdge {
 }
 
 /**
- * Canvas 2 — Serving / representation composition (React Flow v12).
- * Valid edges = primary solid + animated; invalid edges = danger dashed with an
- * inline reason label. Clicking a node publishes the cross-canvas selection.
+ * Canvas 2 — Serving / representation (fractal React Flow). Click selects a
+ * node (cross-canvas); Ctrl/⌘+click descends into a node's interior level
+ * (fractal), shown via the CanvasFrame breadcrumb. Read-only instrument layout.
  */
 export function FlowCanvasC2() {
   const selection = useWorkbenchStore((s) => s.selection);
   const select = useWorkbenchStore((s) => s.select);
+  const drill = useWorkbenchStore((s) => s.drill.c2);
+  const drillInto = useWorkbenchStore((s) => s.drillInto);
+  const drillTo = useWorkbenchStore((s) => s.drillTo);
+  const drillUp = useWorkbenchStore((s) => s.drillUp);
 
-  // Controlled like C1: the `selected` ring is driven by the shared store, so a
-  // cross-canvas selection highlights here too (selection flows in AND out).
+  const { level, crumbs } = useMemo(() => resolveLevel(c2Graph, drill), [drill]);
+
   const nodes = useMemo<ServingFlowNode[]>(
     () =>
-      c2Nodes.map((n) => ({
+      level.nodes.map((n) => ({
         ...n,
         selected: selection.canvas === "c2" && selection.nodeId === n.id,
       })),
-    [selection.canvas, selection.nodeId],
+    [level, selection.canvas, selection.nodeId],
   );
-
-  const edges = useMemo<ServingFlowEdge[]>(() => c2Edges.map(styleEdge), []);
+  const edges = useMemo<ServingFlowEdge[]>(() => level.edges.map(styleEdge), [level]);
 
   const onNodeClick = useCallback<NodeMouseHandler<ServingFlowNode>>(
-    (_event, node) => {
-      select({ canvas: "c2", nodeId: node.id });
+    (event, node) => {
+      const sub = node.data?.drillTo;
+      if ((event.ctrlKey || event.metaKey) && sub) drillInto("c2", sub);
+      else select({ canvas: "c2", nodeId: node.id });
     },
-    [select],
+    [select, drillInto],
   );
 
+  const frameCrumbs = crumbs.map((c, i) => ({
+    label: c.label,
+    onClick: () => drillTo("c2", i - 1),
+  }));
+
   return (
-    <ReactFlowProvider>
-      <div className="h-full w-full bg-canvas-bg">
-        <ReactFlow<ServingFlowNode, ServingFlowEdge>
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodeClick={onNodeClick}
-          /* Read-only instrument graph (fixed layout); no-op change handlers
-             silence RF's controlled-without-handler warning. */
-          onNodesChange={() => {}}
-          onEdgesChange={() => {}}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          fitView
-          proOptions={{ hideAttribution: true }}
-          className="bg-canvas-bg"
-        >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--canvas-grid)" />
-          <Controls />
-        </ReactFlow>
-      </div>
-    </ReactFlowProvider>
+    <CanvasFrame
+      title="C2 · Serving / representation"
+      crumbs={frameCrumbs}
+      focused={selection.canvas === "c2"}
+      canBack={drill.length > 0}
+      onBack={() => drillUp("c2")}
+      onActivate={() => select({ canvas: "c2" })}
+    >
+      <ReactFlowProvider>
+        <div className="h-full w-full bg-canvas-bg">
+          <ReactFlow<ServingFlowNode, ServingFlowEdge>
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodeClick={onNodeClick}
+            onNodesChange={() => {}}
+            onEdgesChange={() => {}}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            fitView
+            proOptions={{ hideAttribution: true }}
+            className="bg-canvas-bg"
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={16}
+              size={1}
+              color="var(--canvas-grid)"
+            />
+            <Controls />
+          </ReactFlow>
+          <DrillHint />
+        </div>
+      </ReactFlowProvider>
+    </CanvasFrame>
   );
 }
