@@ -8,11 +8,15 @@ import { createClient } from "@/lib/supabase/server";
  * re-check on the server (defense in depth) and provide the NavBar shell.
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // Re-check on the server (defense in depth). Skipped under the dev preview
+  // escape hatch (OFF by default) — see lib/supabase/middleware.ts.
+  if (process.env.PREVIEW_NO_AUTH !== "1") {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) redirect("/login");
+  }
 
   return <AppShell>{children}</AppShell>;
 }

@@ -8,6 +8,12 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
  * users to /login (ADR-0008 §1). Called from the root middleware.ts.
  */
 export async function updateSession(request: NextRequest) {
+  // Dev preview escape hatch (OFF by default): skip the auth gate so the UI can
+  // be previewed before a real Supabase project exists. Never set in prod.
+  if (process.env.PREVIEW_NO_AUTH === "1") {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
