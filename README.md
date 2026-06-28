@@ -52,6 +52,25 @@ design/
 
 Start at any product's `design/README.md` (e.g. [CAW-01](./products/caw-01-simulation-control-plane/design/README.md)).
 
+## Design systems (Open Design)
+
+Every product **with a GUI** ships a `DESIGN.md` at its product root, in the [Open Design](https://) seed format
+(YAML frontmatter tokens — `name` / `colors` / `typography` / `radius` / `spacing` — plus brand voice + component
+guidance). Point Open Design at this repo (or paste a product's `DESIGN.md`) to bootstrap the UI; the design stack
+is **token-driven and code-as-source-of-truth** (DESIGN.md → DTCG `*.tokens.json` → Tailwind v4 → shadcn/ui +
+Radix), which Open Design then refines inside the project.
+
+| Product | GUI | DESIGN.md |
+| --- | --- | --- |
+| CAW-01 | Web app (nav · 1:9 · 3 canvases) | [DESIGN.md](./products/caw-01-simulation-control-plane/DESIGN.md) |
+| CAW-02 | Read-only knowledge viewer (minimal) | [DESIGN.md](./products/caw-02-knowledge-repository/DESIGN.md) |
+| CAW-03 | Review/status UI (minimal) | [DESIGN.md](./products/caw-03-paper-patent-harness/DESIGN.md) |
+| CAW-04 | Public website + API (docs-style) | [DESIGN.md](./products/caw-04-tips-skills-web-api/DESIGN.md) |
+| CAW-05 / CAW-06 | None (pipeline + CLI + MCP) | — (no GUI) |
+
+A shared neutral (zinc) base + per-product accent gives the family one identity with distinct products. See each
+product's `design/06-*` (frontend/interfaces) + `ADR-0006` for the full design-system rationale.
+
 ## Scale
 
 | Product | Design docs (EN) | Korean (KO) | Runbooks |
