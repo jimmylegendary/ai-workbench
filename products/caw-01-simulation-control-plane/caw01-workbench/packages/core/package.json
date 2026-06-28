@@ -1,0 +1,22 @@
+{
+  "name": "@caw/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain services, Zod schemas, and ports. Zero next, zero supabase-sdk (ADR-0001).",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas/index.ts",
+    "./ports": "./src/ports/index.ts"
+  },
+  "scripts": {
+    "lint": "echo \"(stub) lint @caw/core\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

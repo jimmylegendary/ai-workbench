@@ -52,9 +52,17 @@ app/
 └─ api/runs/[id]/stream/route.ts   # SSE run status
 ```
 
+## Auth / session (resolved)
+
+The v1 auth/session model is **Supabase Auth** (magic-link/OTP) with `@supabase/ssr` cookies and a
+`middleware.ts` gate on `(app)` routes; the `User`/`Setting` menus are the account surface. Layering (View /
+ViewModel / Model) is [app-architecture-mvvm.md](./app-architecture-mvvm.md); schema + RLS + the metadata-only
+data boundary are [auth-and-supabase.md](./auth-and-supabase.md); decision record is
+[../01-decisions/ADR-0008-auth-and-data-supabase.md](../01-decisions/ADR-0008-auth-and-data-supabase.md).
+
 ## Open questions
 
-Auth/session model for User/Setting menus in v1 (single-user) — TODO(open-question).
+None blocking — see the resolved auth section above and the MVVM/data docs for the remaining minor TODOs.
 
 ## Implications for runbooks
 

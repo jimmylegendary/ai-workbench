@@ -1,0 +1,16 @@
+# Supabase CLI project config (skeleton). Run `supabase init` to regenerate a full
+# file; this minimal version documents the project id + local ports for `supabase start`.
+project_id = "caw01-simulation-control-plane"
+
+[db]
+port = 54322
+major_version = 15
+
+[auth]
+# v1: email magic-link / OTP (ADR-0008). Add OAuth providers here later.
+enable_signup = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+
+[auth.email]
+enable_confirmations = true

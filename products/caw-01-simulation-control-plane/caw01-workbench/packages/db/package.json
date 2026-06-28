@@ -1,0 +1,16 @@
+{
+  "name": "@caw/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Supabase migrations + RLS and repository implementations (ADR-0008).",
+  "scripts": {
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "lint": "echo \"(stub) lint @caw/db\""
+  },
+  "dependencies": {
+    "@caw/core": "workspace:*",
+    "@supabase/supabase-js": "^2.47.0"
+  }
+}

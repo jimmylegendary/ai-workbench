@@ -23,18 +23,21 @@ caw01-workbench/
 │  │  ├─ src/services/          # ExperimentService, RunService, RegistryService, WorkTreeService, EvidenceService
 │  │  ├─ src/schemas/           # Zod schemas = the one contract
 │  │  └─ src/ports/             # engine-adapter + repository interfaces
-│  ├─ db/                       # @caw/db — repo impls, migrations, artifact-store client (Postgres/SQLite)
-│  │  └─ migrations/
+│  ├─ db/                       # @caw/db — Supabase repo impls + SQL migrations + RLS, artifact-store client (ADR-0008)
+│  │  └─ migrations/            # Supabase Postgres schema + row-level-security policies
 │  ├─ engine-adapters/          # @caw/engine-adapters — TS side of the Python seam
 │  └─ design-tokens/            # DTCG *.tokens.json + build to Tailwind theme (open-design)
 ├─ apps/
-│  ├─ web/                      # Next.js App Router (primary surface)
-│  │  ├─ app/(simulation)/      # Simulation screen: 1:9 layout
-│  │  ├─ app/(module-design)/   # Module Design menu
-│  │  ├─ components/canvases/   # canvas-1 (React Flow), canvas-2 (React Flow), canvas-3 (r3f)
-│  │  ├─ components/control-panel/
-│  │  ├─ components/work-tree/
-│  │  └─ store/                 # single Zustand store
+│  ├─ web/                      # Next.js App Router (primary surface) — MVVM (app-architecture-mvvm.md)
+│  │  ├─ app/(auth)/login/      # Supabase magic-link sign-in (public)
+│  │  ├─ app/(app)/             # session-gated group: simulation / module-design / runs / user / settings
+│  │  ├─ app/api/runs/[id]/stream/   # SSE run status (Route Handler)
+│  │  ├─ features/<f>/{view,viewmodel,model}/   # MVVM feature slices (e.g. simulation)
+│  │  ├─ components/shell/ · components/ui/      # NavBar/AppShell/SplitPane + shadcn primitives (View)
+│  │  ├─ lib/supabase/          # @supabase/ssr client/server/middleware
+│  │  ├─ lib/query/             # TanStack Query client (ViewModel server-state)
+│  │  ├─ store/                 # single Zustand store (ViewModel interaction-state)
+│  │  └─ middleware.ts          # session refresh + (app) gate
 │  ├─ mcp/                      # MCP server over @caw/core
 │  └─ cli/                      # CLI over @caw/core
 ├─ engine/                      # Python engine service (out-of-process)

@@ -22,4 +22,17 @@ The full design lives under `design/`:
 
 - `design/README.md` — design index (English).
 - `design/korean/` — Korean (KO) version of the design.
+
+### Frontend / web app (UI)
+
+The web app is designed to a buildable level and a skeleton is scaffolded:
+
+- `DESIGN.md` — Open Design seed (9-section schema) → tokens for the design system.
+- `design/06-frontend/` — app architecture (**MVVM**), **Supabase** auth + schema + RLS, routes & screens,
+  and `prototype-briefs/` (per-screen Open Design Prototype-mode inputs).
+- `design/01-decisions/ADR-0008-auth-and-data-supabase.md` — auth + metadata-only data boundary decision.
+- `caw01-workbench/` — **Next.js + Supabase skeleton** (pnpm monorepo): `apps/web` (App Router, MVVM,
+  auth-gated), `packages/core` (Zod schemas + ports), `packages/db` (Supabase migrations + RLS). Structure and
+  wiring are in place; business logic + the Python engine connection are stubbed (`TODO`). See
+  `caw01-workbench/README.md`.
 </content>

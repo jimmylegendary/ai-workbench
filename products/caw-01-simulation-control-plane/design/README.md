@@ -14,12 +14,12 @@ say *what* and *why*; the runbooks say *how to build it*. **No product code is w
 | --- | --- | --- |
 | `_meta` | Source brief, doc conventions, [glossary](./_meta/GLOSSARY.md) | the truth + the rules |
 | `00` | [overview](./00-overview/) | [vision](./00-overview/vision.md), [scope & non-goals](./00-overview/scope-and-non-goals.md), [personas & use cases](./00-overview/personas-and-use-cases.md) |
-| `01` | [decisions](./01-decisions/) | 7 ADRs (product surface, data layer, frontend, canvas, trace pipeline, design system, work-tree) |
+| `01` | [decisions](./01-decisions/) | 8 ADRs (product surface, data layer, frontend, canvas, trace pipeline, design system, work-tree, **auth+Supabase**) |
 | `02` | [research](./02-research/) | grounding research behind the ADRs |
 | `03` | [architecture](./03-architecture/) | system architecture, component boundaries, data flow, tech stack, repo structure |
 | `04` | [data-layer](./04-data-layer/) | data model, storage strategy, work-tree storage, run-evidence & provenance |
 | `05` | [caw01-simulation-control-plane](./05-caw01-simulation-control-plane/) | the heart: L0 IR, serving/representation, trace pipeline, engine, the 3 canvases, control panel, work-tree UX |
-| `06` | [frontend](./06-frontend/) | Next.js UI architecture, layout/nav, state, canvas rendering, open-design, components |
+| `06` | [frontend](./06-frontend/) | Next.js UI architecture, **MVVM app architecture**, **auth + Supabase (schema/RLS)**, **routes & screens**, layout/nav, state, canvas rendering, open-design, components, **`prototype-briefs/`** (Open Design Prototype-mode inputs) |
 | `07` | [backend-api](./07-backend-api/) | core API contract, simulation runtime service, persistence, MCP/CLI adapters |
 | `08` | [research-plan](./08-research-plan/) | research plan, validation/golden tests, [open questions](./08-research-plan/open-questions.md) |
 | `09` | [roadmap](./09-roadmap/) | milestones/phases, dependency graph, risks |
@@ -39,8 +39,12 @@ one **memory-annotated L0 IR** and produce a **comparable projection** preserved
 ## Key decisions (see `01-decisions/`)
 
 - **Surface:** one TS product core `@caw/core` + thin web/MCP/CLI surfaces (all belonging to CAW-01 alone).
-- **Data:** Postgres-spine polyglot; start on SQLite (PG-portable); blobs on filesystem by path.
-- **Frontend:** Next.js App Router, server shell + client islands, Zustand; Python engine out-of-process.
+- **Data:** **Supabase Postgres** for control-plane **metadata** (the concrete "PG" of ADR-0002) + RLS; heavy IR
+  (L0/L1/L2) & trace blobs stay in the engine/artifact store, referenced by `ir_uri` pointer (ADR-0008).
+- **Auth:** **Supabase Auth** (magic-link/OTP) + `@supabase/ssr` middleware gate; owner-only RLS (ADR-0008).
+- **Frontend:** Next.js App Router, server shell + client islands, **MVVM** (View / ViewModel = Zustand +
+  TanStack Query / Model = repositories → Supabase·`@caw/core`); Python engine out-of-process. A buildable
+  skeleton is scaffolded at [`../caw01-workbench/`](../caw01-workbench/).
 - **Canvas:** React Flow (C1/C2), react-three-fiber 3D (C3) with a Konva 2D fallback gated on a spike.
 - **Trace:** syntorch capture → Chakra exporter → ASTRA-sim; Chakra→L0 lowering is the normalization waist; axes run in parallel into one L0.
 - **Design:** "open design" = shadcn/ui + Radix + Tailwind v4 + DTCG tokens.
