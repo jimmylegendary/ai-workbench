@@ -26,6 +26,9 @@
   --radius-lg: 10px;
 }
 
+/* Dark theme = the Settings → Appearance toggle target (add class="dark" on
+   <html>). v1 default is light chrome + dark canvases (canvas-* tokens are dark
+   in both themes), so this block activates only when the user opts into dark. */
 .dark {
   --background: #0b0d10;
   --surface: #15181d;

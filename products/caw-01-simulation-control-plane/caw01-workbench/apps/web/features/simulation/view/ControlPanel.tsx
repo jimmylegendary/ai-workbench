@@ -2,20 +2,48 @@
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { AxisStatus } from "@caw/core";
+import { ProjectionReadout } from "./ProjectionReadout";
+
+/** A single comparable metric in the projection readout. */
+export type ProjectionRow = { name: string; value: string; unit?: string };
+
+/** One evidence pointer backing a claim (ref is a run_id/uri, never free text). */
+export type EvidenceRow = {
+  label: string;
+  boundary: "public" | "internal" | "confidential";
+  trust: 0 | 1 | 2 | 3;
+  ref: string;
+};
 
 const AXES: AxisStatus["axis"][] = ["real", "synthetic", "sim"];
 
-function toneFor(status: string) {
+type Tone = "neutral" | "running" | "success" | "danger" | "warning";
+
+function toneFor(status: string): Tone {
   switch (status) {
     case "running":
-      return "running" as const;
+      return "running";
     case "succeeded":
-      return "success" as const;
+      return "success";
     case "failed":
-      return "danger" as const;
+      return "danger";
     default:
-      return "neutral" as const;
+      return "neutral";
+  }
+}
+
+/** Boundary → Badge tone. Color is always paired with the boundary text below
+ * (color-blind-safe per DESIGN.md anti-patterns). */
+function boundaryTone(boundary: EvidenceRow["boundary"]): Tone {
+  switch (boundary) {
+    case "public":
+      return "success";
+    case "internal":
+      return "warning";
+    case "confidential":
+      return "danger";
   }
 }
 
@@ -27,13 +55,21 @@ export function ControlPanel(props: {
   perAxis: AxisStatus[];
   dirty: boolean;
   isRunning: boolean;
+  projection: ProjectionRow[];
+  evidence: EvidenceRow[];
   onRun: () => void;
   onStop: () => void;
   onSaveItem: () => void;
   onSaveAll: () => void;
 }) {
-  const byAxis = (a: string) =>
-    props.perAxis.find((x) => x.axis === a)?.status ?? "queued";
+  const byAxis = (axis: string): string =>
+    props.perAxis.find((x) => x.axis === axis)?.status ?? "queued";
+
+  const nextHint = props.isRunning
+    ? "Running… Stop to cancel."
+    : props.dirty
+      ? "Unsaved changes — Save item or Save full."
+      : "Next: compose an experiment, then Run. (honest-next-step)";
 
   return (
     <div className="flex flex-col gap-4 p-3">
@@ -42,10 +78,13 @@ export function ControlPanel(props: {
         <Button onClick={props.onRun} disabled={props.isRunning}>
           Run
         </Button>
-        <Button variant="secondary" onClick={props.onStop} disabled={!props.isRunning}>
+        <Button
+          variant="secondary"
+          onClick={props.onStop}
+          disabled={!props.isRunning}
+        >
           Stop
         </Button>
-        <Button variant="ghost">Configure</Button>
       </div>
 
       {/* RunStatus — per-axis */}
@@ -54,21 +93,68 @@ export function ControlPanel(props: {
           Run status
         </h3>
         <ul className="space-y-1">
-          {AXES.map((axis) => (
-            <li key={axis} className="flex items-center justify-between text-sm">
-              <span className="font-readout">{axis}</span>
-              <Badge tone={toneFor(byAxis(axis))}>{byAxis(axis)}</Badge>
-            </li>
-          ))}
+          {AXES.map((axis) => {
+            const status = byAxis(axis);
+            const running = status === "running";
+            return (
+              <li
+                key={axis}
+                className="flex items-center justify-between text-sm"
+              >
+                <span
+                  className={cn(
+                    "font-readout",
+                    running && "text-accent animate-pulse",
+                  )}
+                >
+                  {axis}
+                </span>
+                <Badge tone={toneFor(status)}>{status}</Badge>
+              </li>
+            );
+          })}
         </ul>
       </section>
 
-      {/* ProjectionReadout (stub) */}
+      {/* ProjectionReadout */}
       <section className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
           Projection
         </h3>
-        <pre className="font-readout text-xs text-text-muted">— no run yet —</pre>
+        <ProjectionReadout projection={props.projection} />
+      </section>
+
+      {/* Evidence */}
+      <section className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
+          Evidence
+        </h3>
+        {props.evidence.length === 0 ? (
+          <p className="font-readout text-xs text-text-muted">— none —</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {props.evidence.map((ev) => (
+              <li
+                key={`${ev.ref}:${ev.label}`}
+                className="flex items-center gap-2 text-xs"
+              >
+                <Badge tone={boundaryTone(ev.boundary)}>{ev.boundary}</Badge>
+                <span className="min-w-0 truncate text-text" title={ev.label}>
+                  {ev.label}
+                </span>
+                <span className="ml-auto shrink-0 font-readout text-text-muted">
+                  T{ev.trust}
+                </span>
+                <span
+                  className="max-w-32 shrink-0 truncate font-readout text-text-muted"
+                  title={ev.ref}
+                >
+                  {ev.ref}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* SaveControls */}
@@ -80,14 +166,16 @@ export function ControlPanel(props: {
           Save full
         </Button>
         {props.dirty && (
-          <span className="ml-auto inline-block h-2 w-2 rounded-full bg-warning" title="unsaved changes" />
+          <span
+            className="ml-auto inline-block h-2 w-2 rounded-full bg-warning"
+            title="unsaved changes"
+            aria-label="unsaved changes"
+          />
         )}
       </div>
 
       {/* NextActionHint */}
-      <p className="text-xs text-text-muted">
-        Next: compose an experiment, then Run. (honest-next-step)
-      </p>
+      <p className="text-xs text-text-muted">{nextHint}</p>
     </div>
   );
 }

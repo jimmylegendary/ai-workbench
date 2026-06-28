@@ -34,7 +34,17 @@ export const useWorkbenchStore = create<WorkbenchState>((set) => ({
   run: { perAxis: [] },
   layout: { dividerRatio: 0.1 }, // 1:9
 
-  select: (sel) => set((s) => ({ selection: { ...s.selection, ...sel } })),
+  // A single active selection target: switching canvas clears the other
+  // discriminant so two canvases can never appear selected at once. A bare
+  // select({canvas}) (e.g. a work-tree subtree click) clears node/part focus.
+  select: (sel) =>
+    set((s) => ({
+      selection: {
+        canvas: sel.canvas ?? s.selection.canvas,
+        nodeId: "nodeId" in sel ? sel.nodeId : undefined,
+        partId: "partId" in sel ? sel.partId : undefined,
+      },
+    })),
   markDirty: (dirty) => set({ dirty }),
   setRun: (runId) => set((s) => ({ run: { ...s.run, runId } })),
   setAxisStatus: (perAxis) => set((s) => ({ run: { ...s.run, perAxis } })),
