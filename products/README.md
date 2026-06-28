@@ -10,9 +10,9 @@ shared platform.
 | CAW-01 | `caw-01-simulation-control-plane/` | Standalone simulation control plane. | Designed |
 | CAW-02 | `caw-02-knowledge-repository/` | Team/personal knowledge repository and skills. | Designed |
 | CAW-03 | `caw-03-paper-patent-harness/` | Paper and patent writing harness agent (wraps PaperOrchestra). | Designed |
-| CAW-04 | `caw-04-tips-skills-web-api/` | Website and REST API for AI-use tips, skills, workflows. | Planned |
+| CAW-04 | `caw-04-tips-skills-web-api/` | Website and REST API for AI-use tips, skills, workflows. | Designed |
 | CAW-05 | `caw-05-trend-collection/` | Periodic AI paper/article/report/trend collection and synthesis. | Planned |
 | CAW-06 | `caw-06-ai-future-ttt-research/` | AI-future / TTT research automation. | Planned |
 
-`caw-01`, `caw-02`, and `caw-03` are designed; the rest are planned folders.
+`caw-01`–`caw-04` are designed; `caw-05` and `caw-06` are planned folders.
 </content>
