@@ -12,7 +12,7 @@ shared platform.
 | CAW-03 | `caw-03-paper-patent-harness/` | Paper and patent writing harness agent (wraps PaperOrchestra). | Designed |
 | CAW-04 | `caw-04-tips-skills-web-api/` | Website and REST API for AI-use tips, skills, workflows. | Designed |
 | CAW-05 | `caw-05-trend-collection/` | Periodic AI paper/article/report/trend collection and synthesis. | Designed |
-| CAW-06 | `caw-06-ai-future-ttt-research/` | AI-future / TTT research automation. | Planned |
+| CAW-06 | `caw-06-ai-future-ttt-research/` | AI-future / TTT research automation. | Designed |
 
-`caw-01`–`caw-05` are designed; `caw-06` is a planned folder.
+All six products (`caw-01`–`caw-06`) are designed (EN + Korean). Implementation is per-product via each `design/10-runbooks/`.
 </content>
