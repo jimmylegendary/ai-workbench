@@ -1,35 +1,28 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
-import { cn } from "@/lib/utils";
+import { useMemo } from "react";
 import { useWorkbenchStore } from "@/store/workbenchStore";
-import {
-  c3PartsById,
-  resolveC3Level,
-  type HwTreeNode,
-} from "@/features/simulation/model/fixtures/c3";
+import { c3PartsById, resolveC3Level } from "@/features/simulation/model/fixtures/c3";
 import { CanvasFrame } from "../CanvasFrame";
 import { DrillHint } from "../DrillHint";
-import { LevelTag, TwinObject } from "./TwinObject";
+import { LevelTag } from "./TwinObject";
+import { IsoScene } from "./iso/IsoScene";
 
 /**
- * Canvas 3 — Hardware design, as a FRACTAL hardware schematic / floorplan.
- * The current drill level (store: drill.c3) renders its child parts as nested
- * rectangles on the dark canvas — a board/package/die layout, sized to fill —
- * each labelled with a mono spec readout.
+ * Canvas 3 — Hardware design, as a FRACTAL isometric digital twin. The current
+ * drill level (store: drill.c3) resolves to a `container` + its child `parts`;
+ * IsoScene picks the level-appropriate 2.5D renderer (room · rack · tray · gpu ·
+ * or a generic twin row) and draws the children as clickable iso hit regions.
  *
  *   Plain click       → select({canvas:'c3', partId})  (cross-canvas pick)
  *   Ctrl/⌘+click       → drillInto('c3', partId)        (descend; parts WITH children)
  *   breadcrumb crumb i → drillTo('c3', i-1)             (ascend)  ·  ← / Backspace = up one
  *
- * Color rule: tiles + text use CANVAS tokens (the canvas is always dark);
- * hierarchy level is shown with a NEUTRAL tag — the reserved status hues
- * (success/warning/danger/cyan) are kept for run-state / validity / selection.
+ * Color rule: scene faces use fixed metal greys (the canvas is always dark);
+ * hierarchy/taxonomy uses the categorical palette and the NEUTRAL level tag —
+ * the reserved status hues (success/warning/danger/cyan) stay for run-state /
+ * validity / selection (var(--accent) = the selection outline only).
  */
-
-/** Near-square column count to lay N twin objects out to fill the area. */
-const gridCols = (n: number): number => Math.max(1, Math.ceil(Math.sqrt(n)));
-
 export function HardwareTreeC3() {
   const selection = useWorkbenchStore((s) => s.selection);
   const select = useWorkbenchStore((s) => s.select);
@@ -38,29 +31,17 @@ export function HardwareTreeC3() {
   const drillTo = useWorkbenchStore((s) => s.drillTo);
   const drillUp = useWorkbenchStore((s) => s.drillUp);
 
-  const { parts, crumbs } = useMemo(() => resolveC3Level(drill), [drill]);
+  const { container, parts, crumbs } = useMemo(() => resolveC3Level(drill), [drill]);
 
   const selectedPart =
     selection.canvas === "c3" && selection.partId
       ? c3PartsById[selection.partId]
       : undefined;
 
-  const onPartClick = (
-    event: MouseEvent<HTMLButtonElement>,
-    part: HwTreeNode,
-  ): void => {
-    const hasChildren = !!part.children && part.children.length > 0;
-    if ((event.ctrlKey || event.metaKey) && hasChildren)
-      drillInto("c3", part.partId);
-    else select({ canvas: "c3", partId: part.partId });
-  };
-
   const frameCrumbs = crumbs.map((c, i) => ({
     label: c.label,
     onClick: () => drillTo("c3", i - 1),
   }));
-
-  const cols = gridCols(parts.length);
 
   return (
     <CanvasFrame
@@ -72,53 +53,18 @@ export function HardwareTreeC3() {
       onActivate={() => select({ canvas: "c3" })}
     >
       <div className="relative h-full w-full overflow-hidden bg-canvas-bg">
-        {parts.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="font-readout text-xs text-canvas-text-dim">
-              — leaf part: no interior —
-            </p>
-          </div>
-        ) : (
-          <div
-            className="grid h-full w-full gap-2 p-2"
-            style={{
-              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-              gridAutoRows: "minmax(0, 1fr)",
-            }}
-          >
-            {parts.map((part) => {
-              const hasChildren = !!part.children && part.children.length > 0;
-              const isSelected =
-                selection.canvas === "c3" && selection.partId === part.partId;
-              return (
-                <button
-                  key={part.partId}
-                  type="button"
-                  onClick={(e) => onPartClick(e, part)}
-                  title={
-                    hasChildren
-                      ? `${part.partId} — Ctrl/⌘+click to drill in`
-                      : part.partId
-                  }
-                  className={cn(
-                    "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-md)]",
-                    "border bg-canvas-tile p-2 text-left shadow-sm transition-all",
-                    "hover:-translate-y-0.5 hover:shadow-md",
-                    isSelected
-                      ? "border-accent ring-2 ring-accent"
-                      : "border-canvas-grid hover:border-canvas-text-muted",
-                  )}
-                >
-                  <TwinObject
-                    part={part}
-                    isSelected={isSelected}
-                    hasChildren={hasChildren}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <IsoScene
+          container={container}
+          parts={parts}
+          selectedId={selection.canvas === "c3" ? selection.partId : undefined}
+          onPick={(id, drillIn) => {
+            // Only descend when the target actually has an interior (centralized
+            // guard so a Ctrl/⌘+click on a leaf selects instead of drilling).
+            const node = c3PartsById[id];
+            if (drillIn && node?.children?.length) drillInto("c3", id);
+            else select({ canvas: "c3", partId: id });
+          }}
+        />
 
         {/* selected-part spec readout (inline; PartInspector reads the same partId) */}
         {selectedPart && (

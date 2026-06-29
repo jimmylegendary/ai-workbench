@@ -1,25 +1,53 @@
 import type { HwLevel, ClusterType } from "@caw/core";
 
 /**
- * Canvas 3 — Hardware design sample hierarchy (design/05-…/canvas-3-hw-design.md).
+ * Canvas 3 — Hardware digital twin (RESEARCHED instance).
  *
- *   cluster ─► rack ─► tray ─► package ─► die ─► chip ─► component
+ *   data_center ─► cluster (zone) ─► rack ─► tray ─► package ─► die ─► chip ─► component
+ *
+ * Grounded in shipping NVIDIA-class systems (GB200 NVL72 + HGX/DGX H100 + Hopper
+ * GH100 internals). The canonical drill path the designers want to demo:
+ *   data center (zones per cluster type)
+ *     → GPU cluster
+ *       → GB200-style rack (18 compute trays + 9 NVLink-switch trays + PSU)
+ *         → compute tray (2 CPU + 8 GPU + 4 NVSwitch + ConnectX-7 NICs + OSFP)
+ *           → GPU (SM array + tensor cores + L2 + HBM stacks)
  *
  * Canvas 3 renders this as a FRACTAL hardware schematic / floorplan: the current
- * drill level shows its child parts as nested rectangles (a board/package/die
- * layout), not a tree list. Ctrl+click a part WITH children descends one level
- * (HardwareTreeC3 + resolveC3Level below); the per-canvas drill path (store) is
- * an array of `partId`s. A plain pick returns a domain `partId` (never a raw
- * renderer object), published to the shared store as selection.partId, which
- * PartInspector reads back here.
+ * drill level shows its child parts as nested rectangles. Ctrl+click a part WITH
+ * children descends one level (resolveC3Level below). The full validation schema
+ * lives in @caw/core `schemas/hardware.ts`; this is the lean UI projection.
  *
- * Local fixtures only — never import a shared fixtures file (per task rules).
- * Mirrors the core `HwNode` shape (level + spec + part_id) without the
- * server-only id/experiment_id/parent_id columns.
+ * Local fixtures only. Mirrors the core `HwNode` shape (level + spec + part_id)
+ * plus optional twin fields (role/count/trayKind/comp) the renderers read.
  */
 
 /** A spec field set is opaque JSONB on the server; here a flat readout map. */
 export type HwSpec = Record<string, string>;
+
+/** Sub-classifier for a tray's function (drives the tray glyph). */
+export type TrayKind = "compute" | "nvlink-switch" | "power" | "network";
+
+/**
+ * Component kind for leaf/silicon parts (drives the part glyph). NOT a level —
+ * `level` stays within @caw/core `HwLevel`; `comp` adds the twin's finer type.
+ */
+export type CompKind =
+  | "gpu"
+  | "cpu"
+  | "nvswitch"
+  | "nic"
+  | "dpu"
+  | "osfp"
+  | "hbm"
+  | "sm"
+  | "tensor"
+  | "l2"
+  | "cache"
+  | "register-file"
+  | "nvlink"
+  | "pcie"
+  | "psu";
 
 /** One node in the hardware tree (UI projection of a core `HwNode`). */
 export interface HwTreeNode {
@@ -27,265 +55,560 @@ export interface HwTreeNode {
   partId: string;
   name: string;
   level: HwLevel;
+  /** free-form role/function shown in PartInspector. */
+  role?: string;
+  /** how many identical instances this node stands for (e.g. 16 more trays). */
+  count?: number;
   /** taxonomy for `cluster` nodes — drives the twin glyph accent (not status). */
   clusterType?: ClusterType;
+  /** tray function classifier (only on `tray` nodes). */
+  trayKind?: TrayKind;
+  /** silicon/leaf component kind (gpu|cpu|nvswitch|nic|hbm|sm|l2|…). */
+  comp?: CompKind;
   spec: HwSpec;
   children?: HwTreeNode[];
 }
 
-/** Build a compute-chip's component leaves (tensor + memory floorplan). */
-const computeComponents = (chip: string): HwTreeNode[] => [
-  {
-    partId: `comp:${chip}-tca`,
-    name: "tensor-core-array",
-    level: "component",
-    spec: { cores: "528", dtype: "bf16/fp8", tflops: "1979" },
-  },
-  {
-    partId: `comp:${chip}-hbm`,
-    name: "hbm3e-stack",
-    level: "component",
-    spec: { capacity: "192 GiB", bandwidth: "8.0 TB/s", stacks: "8" },
-  },
-];
+/* ----------------------------------------------------------------------- *
+ * GPU internals — NVIDIA Hopper GH100 (H100 SXM5): SM array + tensor cores
+ * + L2 + HBM3 stacks. Built once per GPU id; SMs use count + a representative.
+ * ----------------------------------------------------------------------- */
 
-/** A minimal compute chip carrying tensor + memory components. */
-const computeChip = (die: string): HwTreeNode => ({
-  partId: `chip:${die}-compute`,
-  name: "compute-chip",
-  level: "chip",
-  spec: { role: "compute", clock_ghz: "1.98", voltage_v: "0.78" },
-  children: computeComponents(`${die}-compute`),
-});
-
-/** A minimal die → compute-chip subtree, reused across shallow packages. */
-const computeDie = (pkg: string): HwTreeNode => ({
-  partId: `die:${pkg}-d0`,
-  name: "die-0",
-  level: "die",
-  spec: { process: "TSMC N3", area_mm2: "826", transistors: "208 B" },
-  children: [computeChip(`${pkg}-d0`)],
-});
-
-/** A shallow package (1 die → 1 compute chip), reused across thin trays. */
-const computePackage = (tray: string): HwTreeNode => ({
-  partId: `pkg:${tray}-p0`,
-  name: "accel-pkg-0",
-  level: "package",
-  spec: { dies: "1", tdp_w: "700", substrate: "CoWoS-L", noc_bisection_bw: "3.2 TB/s" },
-  children: [computeDie(`${tray}-p0`)],
-});
-
-/** A thin tray with a single accelerator package. */
-const thinTray = (rack: string, idx: number): HwTreeNode => ({
-  partId: `tray:${rack}-t${idx}`,
-  name: `tray-${idx}`,
-  level: "tray",
-  spec: { packages: "1", height_u: "8", power_w: "780" },
-  children: [computePackage(`${rack}-t${idx}`)],
-});
-
-const astraCluster: HwTreeNode = {
-  partId: "cluster:astra",
-  name: "gpu-cluster",
-  level: "cluster",
-  clusterType: "gpu",
-  spec: {
-    nodes: "256",
-    interconnect: "rail-optimized",
-    topology: "fat-tree",
-    fabric: "NVLink5 + IB-NDR",
-  },
+/** A representative Streaming Multiprocessor (1 of 132 on H100 SXM5). */
+const representativeSm = (gpu: string): HwTreeNode => ({
+  partId: `comp:${gpu}-sm0`,
+  name: "sm (representative)",
+  level: "component",
+  comp: "sm",
+  role: "streaming multiprocessor — 4 processing blocks",
+  spec: { fp32: "128", fp64: "64", tensor_cores: "4", l1_shared: "256 KiB", warp_schedulers: "4" },
   children: [
     {
-      partId: "rack:r0",
-      name: "rack-0",
-      level: "rack",
-      spec: { trays: "3", power_kw: "120", coolant: "DLC", weight_kg: "1360" },
+      partId: `comp:${gpu}-sm0-tc`,
+      name: "tensor-core",
+      level: "component",
+      comp: "tensor",
+      count: 4,
+      role: "4th-gen tensor core (MMA / Transformer Engine FP8)",
+      spec: { dtypes: "FP8/FP16/BF16/TF32/FP64", per_sm: "4" },
+    },
+    {
+      partId: `comp:${gpu}-sm0-rf`,
+      name: "register-file",
+      level: "component",
+      comp: "register-file",
+      role: "fastest tier (Tier 0)",
+      spec: { size: "256 KiB", regs: "65,536 x 32-bit" },
+    },
+    {
+      partId: `comp:${gpu}-sm0-l1`,
+      name: "l1 / shared (unified)",
+      level: "component",
+      comp: "cache",
+      role: "SM-local scratchpad + L1 (Tier 1)",
+      spec: { size: "256 KiB", max_shared_per_block: "227 KiB" },
+    },
+  ],
+});
+
+/** GH100 compute chip: SM array (132) + L2 + HBM. */
+const gh100ComputeChip = (gpu: string): HwTreeNode => ({
+  partId: `chip:${gpu}-compute`,
+  name: "compute-chip (GH100)",
+  level: "chip",
+  spec: { role: "compute", sms: "132", gpcs: "8", clock_ghz: "1.83" },
+  children: [
+    {
+      partId: `comp:${gpu}-smarray`,
+      name: "sm-array",
+      level: "component",
+      comp: "sm",
+      count: 132,
+      role: "132 SMs / 66 TPCs / 8 GPCs (H100 SXM5)",
+      spec: { sms: "132", fp32_cores: "16,896", tensor_cores: "528", fp16_tc: "989 TFLOPS" },
+      children: [representativeSm(gpu)],
+    },
+    {
+      partId: `comp:${gpu}-l2`,
+      name: "l2-cache",
+      level: "component",
+      comp: "l2",
+      role: "chip-wide last-level cache (Tier 2), 2 partitions + crossbar",
+      spec: { size: "50 MiB", partitions: "2" },
+    },
+    {
+      partId: `comp:${gpu}-hbm`,
+      name: "hbm3-stack",
+      level: "component",
+      comp: "hbm",
+      count: 5,
+      role: "global memory (Tier 3), 5 active stacks",
+      spec: { capacity: "80 GiB", bandwidth: "3.35 TB/s", per_stack: "16 GiB", ecc: "SECDED" },
+    },
+  ],
+});
+
+/** GH100 I/O chip: NVLink-4 + PCIe Gen5 PHYs. */
+const gh100IoChip = (gpu: string): HwTreeNode => ({
+  partId: `chip:${gpu}-io`,
+  name: "io-chip",
+  level: "chip",
+  spec: { role: "io" },
+  children: [
+    {
+      partId: `comp:${gpu}-nvlink`,
+      name: "nvlink-4 phy",
+      level: "component",
+      comp: "nvlink",
+      role: "18 links → NVSwitch fabric",
+      spec: { links: "18", bandwidth: "900 GB/s", gen: "4", signaling: "PAM4" },
+    },
+    {
+      partId: `comp:${gpu}-pcie`,
+      name: "pcie-gen5 x16",
+      level: "component",
+      comp: "pcie",
+      role: "host link",
+      spec: { lanes: "16", bandwidth: "128 GB/s", gen: "5" },
+    },
+  ],
+});
+
+/** A full H100 SXM5 GPU package → die → chips → internals. */
+const h100Gpu = (node: string, idx: number): HwTreeNode => {
+  const gpu = `${node}-gpu${idx}`;
+  return {
+    partId: `pkg:${gpu}`,
+    name: `h100-sxm5-${idx}`,
+    level: "package",
+    comp: "gpu",
+    role: "Hopper accelerator (GH100, TSMC 4N, 80B transistors)",
+    spec: { memory: "80 GiB HBM3", mem_bw: "3.35 TB/s", tdp_w: "700", fp8_sparse: "3,958 TFLOPS" },
+    children: [
+      {
+        partId: `die:${gpu}`,
+        name: "gh100-die",
+        level: "die",
+        spec: { process: "TSMC 4N", area_mm2: "814", transistors: "80 B", full_sms: "144", enabled_sms: "132" },
+        children: [gh100ComputeChip(gpu), gh100IoChip(gpu)],
+      },
+    ],
+  };
+};
+
+/* ----------------------------------------------------------------------- *
+ * Compute tray (HGX H100-class node): 8 GPU + 4 NVSwitch + 2 CPU + 8 CX7 +
+ * 2 BlueField-3 + OSFP cages. The unit the GPU rack is built from.
+ * ----------------------------------------------------------------------- */
+
+const computeTray = (rack: string, idx: number, expand: boolean): HwTreeNode => {
+  const node = `${rack}-t${idx}`;
+  const gpus: HwTreeNode[] = expand
+    ? [
+        h100Gpu(node, 0),
+        { ...h100Gpu(node, 1), count: 7, name: "h100-sxm5-1..7 (x7 more)", children: undefined },
+      ]
+    : [{ ...h100Gpu(node, 0), count: 8, name: "h100-sxm5 x8", children: undefined }];
+  return {
+    partId: `tray:${node}`,
+    name: `compute-tray-${idx}`,
+    level: "tray",
+    trayKind: "compute",
+    role: "HGX 8-GPU baseboard node (Sapphire Rapids host)",
+    spec: { height_u: "8", gpus: "8", power_w: "10,200", system_memory: "2 TB DDR5" },
+    children: [
+      ...gpus,
+      {
+        partId: `pkg:${node}-cpu0`,
+        name: "xeon-8480c",
+        level: "package",
+        comp: "cpu",
+        count: 2,
+        role: "host CPU (Sapphire Rapids)",
+        spec: { cores: "56", total_cores: "112", memory: "2 TB DDR5" },
+      },
+      {
+        partId: `pkg:${node}-nvsw0`,
+        name: "nvswitch (3rd-gen)",
+        level: "package",
+        comp: "nvswitch",
+        count: 4,
+        role: "on-baseboard all-to-all NVLink crossbar",
+        spec: { generation: "3rd-gen", aggregate: "7.2 TB/s", bisection: "3.6 TB/s" },
+      },
+      {
+        partId: `pkg:${node}-cx7`,
+        name: "connectx-7 400G",
+        level: "package",
+        comp: "nic",
+        count: 8,
+        role: "scale-out NIC (1 per GPU, rail-optimized)",
+        spec: { speed: "400 Gb/s", fabric: "NDR IB / 400GbE", phy: "OSFP via DensiLink" },
+      },
+      {
+        partId: `pkg:${node}-bf3`,
+        name: "bluefield-3 dpu",
+        level: "package",
+        comp: "dpu",
+        count: 2,
+        role: "storage + in-band management offload",
+        spec: { speed: "400 Gb/s", ports: "dual" },
+      },
+      {
+        partId: `comp:${node}-osfp`,
+        name: "osfp cage",
+        level: "component",
+        comp: "osfp",
+        count: 4,
+        role: "optical scale-out ports (twin-port 400G)",
+        spec: { type: "OSFP", lanes: "100G/lane" },
+      },
+    ],
+  };
+};
+
+/** A GB200-style rack skeleton: 18 compute + 9 NVLink-switch trays + PSU. */
+const gpuRack = (rack: string, label: string, expandFirst: boolean): HwTreeNode => ({
+  partId: `rack:${rack}`,
+  name: label,
+  level: "rack",
+  role: "GB200 NVL72-style rack-scale unit (OCP ORv3 / MGX, 48U)",
+  spec: { trays: "27", gpus: "72", power_kw: "120", coolant: "DLC", weight_kg: "1360" },
+  children: [
+    computeTray(rack, 0, expandFirst),
+    { ...computeTray(rack, 1, false), count: 17, name: "compute-tray-1..17 (x17 more)" },
+    {
+      partId: `tray:${rack}-sw0`,
+      name: "nvlink-switch-tray-0",
+      level: "tray",
+      trayKind: "nvlink-switch",
+      role: "rack NVLink fabric (5th-gen NVSwitch)",
+      spec: { height_u: "1", nvswitch_chips: "2", tray_bw: "14.4 TB/s" },
       children: [
         {
-          partId: "tray:r0-t0",
-          name: "tray-0",
-          level: "tray",
-          spec: { packages: "2", height_u: "8", power_w: "1560" },
-          children: [
-            {
-              partId: "pkg:r0-t0-p0",
-              name: "accel-pkg-0",
-              level: "package",
-              spec: {
-                dies: "2",
-                tdp_w: "1000",
-                substrate: "CoWoS-L",
-                noc_bisection_bw: "3.2 TB/s",
-              },
-              children: [
-                {
-                  partId: "die:r0-t0-p0-d0",
-                  name: "die-0",
-                  level: "die",
-                  spec: { process: "TSMC N3", area_mm2: "826", transistors: "208 B" },
-                  children: [
-                    {
-                      partId: "chip:r0-t0-p0-d0-compute",
-                      name: "compute-chip",
-                      level: "chip",
-                      spec: { role: "compute", clock_ghz: "1.98", voltage_v: "0.78" },
-                      children: [
-                        {
-                          partId: "comp:r0-t0-p0-d0-tca",
-                          name: "tensor-core-array",
-                          level: "component",
-                          spec: { cores: "528", dtype: "bf16/fp8", tflops: "1979" },
-                        },
-                        {
-                          partId: "comp:r0-t0-p0-d0-vec",
-                          name: "vector-unit",
-                          level: "component",
-                          spec: { lanes: "128", dtype: "fp32", gflops: "67000" },
-                        },
-                        {
-                          partId: "comp:r0-t0-p0-d0-hbm",
-                          name: "hbm3e-stack",
-                          level: "component",
-                          spec: { capacity: "192 GiB", bandwidth: "8.0 TB/s", stacks: "8" },
-                        },
-                        {
-                          partId: "comp:r0-t0-p0-d0-sram",
-                          name: "sram-bank",
-                          level: "component",
-                          spec: { capacity: "256 MiB", banks: "64", latency_ns: "12" },
-                        },
-                      ],
-                    },
-                    {
-                      partId: "chip:r0-t0-p0-d0-io",
-                      name: "io-chip",
-                      level: "chip",
-                      spec: { role: "io", clock_ghz: "1.20", voltage_v: "0.85" },
-                      children: [
-                        {
-                          partId: "comp:r0-t0-p0-d0-nvlink",
-                          name: "nvlink-phy",
-                          level: "component",
-                          spec: { lanes: "18", bandwidth: "1.8 TB/s", gen: "5" },
-                        },
-                        {
-                          partId: "comp:r0-t0-p0-d0-pcie",
-                          name: "pcie-gen6-phy",
-                          level: "component",
-                          spec: { lanes: "16", bandwidth: "256 GB/s", gen: "6" },
-                        },
-                      ],
-                    },
-                  ],
-                },
-                {
-                  partId: "die:r0-t0-p0-d1",
-                  name: "die-1",
-                  level: "die",
-                  spec: { process: "TSMC N3", area_mm2: "826", transistors: "208 B" },
-                  children: [computeChip("r0-t0-p0-d1")],
-                },
-              ],
-            },
-            computePackage("r0-t0"),
-          ],
+          partId: `pkg:${rack}-sw0-c0`,
+          name: "nvswitch (5th-gen)",
+          level: "package",
+          comp: "nvswitch",
+          count: 2,
+          role: "72-port NVLink crossbar",
+          spec: { ports: "72", throughput: "7.2 TB/s", sharp: "NVLink SHARP" },
         },
-        thinTray("r0", 1),
-        thinTray("r0", 2),
       ],
     },
     {
-      partId: "rack:r1",
-      name: "rack-1",
-      level: "rack",
-      spec: { trays: "2", power_kw: "118", coolant: "DLC", weight_kg: "1340" },
-      children: [thinTray("r1", 0), thinTray("r1", 1)],
+      partId: `tray:${rack}-sw1`,
+      name: "nvlink-switch-tray-1..8 (x8 more)",
+      level: "tray",
+      trayKind: "nvlink-switch",
+      count: 8,
+      role: "9 NVLink-switch trays total = 18 NVSwitch chips/rack",
+      spec: { height_u: "1", nvswitch_chips: "2" },
+    },
+    {
+      partId: `tray:${rack}-psu`,
+      name: "power-shelf",
+      level: "tray",
+      trayKind: "power",
+      count: 8,
+      role: "AC→DC conversion to the ~50V busbar (N+N)",
+      spec: { psus: "6 x 5.5 kW", shelf_kw: "33", redundancy: "N+N" },
     },
   ],
+});
+
+/* ----------------------------------------------------------------------- *
+ * Zones (clusters) of the ~100 MW room.
+ * ----------------------------------------------------------------------- */
+
+const gpuCluster: HwTreeNode = {
+  partId: "cluster:gpu",
+  name: "gpu-compute-zone",
+  level: "cluster",
+  clusterType: "gpu",
+  role: "primary AI training/inference fabric (~80-85% of IT power)",
+  spec: {
+    racks: "~500-650",
+    gpus: "~40,000-47,000",
+    rack_unit: "GB200 NVL72",
+    pod_su: "8-9 NVL72 racks (~576 GPUs)",
+    interconnect: "rail-optimized fat-tree",
+    fabric: "NVLink5 (scale-up) + Quantum-X800 IB / Spectrum-X (scale-out)",
+  },
+  children: [gpuRack("gpu-r0", "rack-0 (GB200 NVL72)", true), gpuRack("gpu-r1", "rack-1..N", false)],
 };
 
-/** A second, smaller cluster type — shows a data center composes mixed clusters. */
-const cpuCluster: HwTreeNode = {
+const headCluster: HwTreeNode = {
   partId: "cluster:cpu",
-  name: "cpu-cluster",
+  name: "cpu-head-zone",
   level: "cluster",
   clusterType: "cpu",
-  spec: { nodes: "64", sockets: "128", interconnect: "IB-NDR" },
+  role: "orchestration, login/head nodes, dataloaders, pre/post-processing",
+  spec: { racks: "~20-50", rack_power_kw: "10-18", control_plane: "Slurm / Kubernetes" },
   children: [
     {
       partId: "rack:cpu-r0",
       name: "rack-0",
       level: "rack",
-      spec: { trays: "2", power_kw: "44" },
-      children: [thinTray("cpu-r0", 0), thinTray("cpu-r0", 1)],
+      spec: { trays: "16", power_kw: "16", servers: "2-socket x86 (Xeon/EPYC)" },
+      children: [
+        {
+          partId: "tray:cpu-r0-t0",
+          name: "head-node",
+          level: "tray",
+          trayKind: "compute",
+          spec: { sockets: "2", height_u: "2" },
+          children: [
+            {
+              partId: "pkg:cpu-r0-t0-cpu0",
+              name: "epyc / xeon",
+              level: "package",
+              comp: "cpu",
+              count: 2,
+              spec: { cores: "96-192", memory: "12-ch DDR5" },
+            },
+          ],
+        },
+      ],
     },
   ],
 };
 
 const cxlCluster: HwTreeNode = {
   partId: "cluster:cxl",
-  name: "cxl-memory-pool",
+  name: "cxl-memory-zone",
   level: "cluster",
   clusterType: "cxl",
-  spec: { capacity: "48 TiB", devices: "32", protocol: "CXL 3.1" },
+  role: "disaggregated/pooled memory tier: expansion + KV-cache offload",
+  spec: { capacity: "100+ TB coherent", protocol: "CXL 3.x (4.0 emerging)", use_case: "KV-cache offload, pooling" },
   children: [
     {
       partId: "rack:cxl-r0",
       name: "rack-0",
       level: "rack",
-      spec: { trays: "1", power_kw: "18" },
-      children: [thinTray("cxl-r0", 0)],
+      spec: { trays: "8", power_kw: "18" },
+      children: [
+        {
+          partId: "tray:cxl-r0-t0",
+          name: "cmm-b memory box",
+          level: "tray",
+          trayKind: "compute",
+          role: "CXL pooling appliance",
+          spec: { height_u: "2", devices: "many Type-3 DIMM slots" },
+          children: [
+            {
+              partId: "pkg:cxl-r0-t0-sw",
+              name: "cxl switch",
+              level: "package",
+              comp: "nvswitch",
+              role: "hybrid CXL/PCIe switch (e.g. XConn Apollo)",
+              spec: { phy: "PCIe 6.0 (64 GT/s)", latency: "~150-400 ns CXL.mem" },
+            },
+            {
+              partId: "comp:cxl-r0-t0-mem",
+              name: "ddr5 module",
+              level: "component",
+              comp: "hbm",
+              count: 16,
+              role: "pooled DRAM",
+              spec: { media: "DDR5", capacity: "per-device 64-512 GiB" },
+            },
+          ],
+        },
+      ],
     },
   ],
 };
 
 const storageCluster: HwTreeNode = {
   partId: "cluster:storage",
-  name: "storage-cluster",
+  name: "storage-zone",
   level: "cluster",
   clusterType: "storage",
-  spec: { capacity: "12 PB", tier: "NVMe", nodes: "40" },
+  role: "all-flash data lake via GPUDirect Storage on a dedicated fabric",
+  spec: { vendors: "VAST / WEKA / DDN / Pure", media: "all-flash NVMe", protocol: "NVMe-oF + GPUDirect", fabric: "200-400G (decoupled)" },
   children: [
     {
       partId: "rack:stor-r0",
       name: "rack-0",
       level: "rack",
-      spec: { trays: "2", power_kw: "22" },
-      children: [thinTray("stor-r0", 0), thinTray("stor-r0", 1)],
+      spec: { trays: "10", power_kw: "22" },
+      children: [
+        {
+          partId: "tray:stor-r0-t0",
+          name: "nvme-jbof",
+          level: "tray",
+          trayKind: "compute",
+          spec: { height_u: "2", drives: "E1.S / E3.S NVMe (Gen5)" },
+          children: [
+            {
+              partId: "comp:stor-r0-t0-nvme",
+              name: "nvme ssd",
+              level: "component",
+              comp: "hbm",
+              count: 24,
+              role: "TLC/QLC flash",
+              spec: { media: "NVMe Gen5", seq_read: "~14.5 GB/s" },
+            },
+          ],
+        },
+      ],
     },
   ],
 };
 
-/** SERVER entry == the data center (root): a mix of composable clusters. */
+const cxmtCluster: HwTreeNode = {
+  partId: "cluster:cxmt",
+  name: "cxmt-memory-centric-zone",
+  level: "cluster",
+  clusterType: "cxmt",
+  role: "experimental processing-near-memory (PIM/PNM) — INTERNAL/custom, confirm definition",
+  spec: { status: "experimental (few racks)", grounding: "Samsung HBM-PIM / CXL-PNM (CMM-DC) / CMM-B", alt: "could denote ChangXin Memory Technologies DRAM" },
+  children: [
+    {
+      partId: "rack:cxmt-r0",
+      name: "rack-0",
+      level: "rack",
+      spec: { trays: "4", power_kw: "12" },
+      children: [
+        {
+          partId: "tray:cxmt-r0-t0",
+          name: "pnm appliance",
+          level: "tray",
+          trayKind: "compute",
+          role: "near-data compute offload (KV-cache / embeddings)",
+          spec: { height_u: "2", tech: "HBM-PIM / CXL-PNM" },
+          children: [
+            {
+              partId: "comp:cxmt-r0-t0-pim",
+              name: "hbm-pim stack",
+              level: "component",
+              comp: "hbm",
+              count: 8,
+              role: "16-lane FP16 SIMD at the bank (Aquabolt-XL)",
+              spec: { media: "HBM3", compute: "in-bank SIMD" },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+const specialCluster: HwTreeNode = {
+  partId: "cluster:special",
+  name: "special-infra-zone",
+  level: "cluster",
+  clusterType: "special",
+  role: "management, network core/spine, DPU services, observability, bastion",
+  spec: { contents: "spine/core switches, OOB mgmt, telemetry, jump hosts", mgmt_fabric: "1/10G OOB to every zone" },
+  children: [
+    {
+      partId: "rack:spec-r0",
+      name: "rack-0",
+      level: "rack",
+      spec: { trays: "6", power_kw: "14" },
+      children: [
+        {
+          partId: "tray:spec-r0-sn5600",
+          name: "spectrum-4 sn5600 (spine)",
+          level: "tray",
+          trayKind: "network",
+          role: "800GbE AI fabric spine (Spectrum-X)",
+          spec: { height_u: "2", ports: "64 x 800GbE", throughput: "51.2 Tbps" },
+          children: [
+            {
+              partId: "pkg:spec-r0-sn5600-asic",
+              name: "spectrum-4 asic",
+              level: "package",
+              comp: "nvswitch",
+              role: "RoCEv2 lossless Ethernet switch",
+              spec: { throughput: "51.2 Tbps", latency: "sub-us cut-through" },
+            },
+          ],
+        },
+        {
+          partId: "tray:spec-r0-q3400",
+          name: "quantum-x800 q3400",
+          level: "tray",
+          trayKind: "network",
+          role: "800G XDR InfiniBand spine",
+          spec: { height_u: "4", ports: "144 x 800G", asic: "Quantum-3" },
+        },
+      ],
+    },
+  ],
+};
+
+/** SERVER entry == the data center (root): a ~100 MW room of zones per cluster. */
 const dataCenter: HwTreeNode = {
   partId: "server:dc",
   name: "Server · Data center",
   level: "data_center",
-  spec: { region: "on-prem", clusters: "4", power_mw: "2.4", pue: "1.18" },
-  children: [astraCluster, cpuCluster, cxlCluster, storageCluster],
+  role: "~100 MW AI room organised into zones by cluster type",
+  spec: { it_power_mw: "91", facility_mw: "100", pue: "1.1", cooling: "~70% liquid / 30% air", zones: "6" },
+  children: [gpuCluster, headCluster, cxlCluster, storageCluster, cxmtCluster, specialCluster],
 };
 
-/** CLIENT entry == the client device HW (a separate configuration). */
+/* ----------------------------------------------------------------------- *
+ * Client subtree (a separate configuration / digital-twin root).
+ * ----------------------------------------------------------------------- */
+
 const clientDevice: HwTreeNode = {
   partId: "client:dev",
   name: "Client · device",
   level: "client",
+  role: "operator workstation issuing control-plane requests",
   spec: { form: "workstation", soc: "1", ram: "128 GiB" },
   children: [
     {
       partId: "board:client-0",
       name: "main-board",
       level: "tray",
+      trayKind: "compute",
       spec: { sockets: "1", pcie: "gen5 x16" },
       children: [
         {
           partId: "pkg:client-soc",
           name: "client-soc",
           level: "package",
+          comp: "cpu",
+          role: "consumer CPU + integrated NPU",
           spec: { cpu_cores: "24", npu_tops: "120", tdp_w: "120" },
-          children: [computeDie("client-soc")],
+          children: [
+            {
+              partId: "die:client-soc",
+              name: "soc-die",
+              level: "die",
+              spec: { process: "TSMC N3" },
+              children: [
+                {
+                  partId: "chip:client-soc-compute",
+                  name: "compute-chip",
+                  level: "chip",
+                  spec: { role: "compute", cores: "24" },
+                  children: [
+                    {
+                      partId: "comp:client-soc-npu",
+                      name: "npu",
+                      level: "component",
+                      comp: "tensor",
+                      role: "on-die inference accelerator",
+                      spec: { tops: "120", dtype: "int8/fp16" },
+                    },
+                    {
+                      partId: "comp:client-soc-lpddr",
+                      name: "lpddr5x",
+                      level: "component",
+                      comp: "hbm",
+                      role: "unified system memory",
+                      spec: { capacity: "128 GiB", speed: "8533 MT/s" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
         },
       ],
     },
@@ -335,8 +658,8 @@ export interface C3Level {
 /**
  * Resolve the current schematic level + breadcrumb from a C3 drill path (an
  * array of `partId`s). Mirrors fractal.ts/resolveLevel, but walks the HW tree
- * by `partId` instead of a named-level graph. Empty drill = the cluster root;
- * its children (the racks) are the rectangles rendered first.
+ * by `partId` instead of a named-level graph. Empty drill = the root; its
+ * children (the twin objects) are the rectangles rendered first.
  */
 export function resolveC3Level(drill: readonly string[]): C3Level {
   let container = c3Root;
