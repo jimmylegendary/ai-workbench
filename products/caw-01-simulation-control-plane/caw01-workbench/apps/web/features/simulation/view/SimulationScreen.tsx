@@ -9,7 +9,7 @@ import { ViewToolbar } from "./ViewToolbar";
 import { FlowCanvasC1 } from "./canvases/FlowCanvasC1";
 import { FlowCanvasC2 } from "./canvases/FlowCanvasC2";
 import { HardwareTreeC3 } from "./canvases/HardwareTreeC3";
-import { WorkTreeView } from "./work-tree/WorkTreeView";
+import { SimLog } from "./SimLog";
 import {
   projection,
   evidence,
@@ -21,7 +21,7 @@ import {
  * The flagship 1:(very wide) instrument screen. Client island mounted by the
  * server page. The control panel is a narrow left rail; the workspace dominates.
  *
- * Workspace = ViewToolbar + canvas area + a compact work-tree strip.
+ * Workspace = ViewToolbar + canvas area + a compact live sim-log strip.
  *   - view mode 'all'   → the three canvases in a 3-up grid.
  *   - view mode 'split' → one canvas (active tab) filling the area (large).
  * Each canvas self-frames (CanvasFrame: title · fractal breadcrumb · fullscreen)
@@ -70,9 +70,9 @@ export function SimulationScreen({ experimentId }: { experimentId: string }) {
               <div className="h-full">{canvases[activeTab]}</div>
             )}
           </div>
-          {/* compact work-tree strip — canvases get the bulk of the height */}
+          {/* compact live sim-log strip — canvases get the bulk of the height */}
           <div className="mt-2 h-44 shrink-0 border-t border-border">
-            <WorkTreeView />
+            <SimLog />
           </div>
         </div>
       }

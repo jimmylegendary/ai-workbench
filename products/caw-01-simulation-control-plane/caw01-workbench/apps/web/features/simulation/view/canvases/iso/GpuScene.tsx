@@ -323,8 +323,10 @@ const HBM_TOP = Z0 + HBM.h;
 // Die-edge HBM PHY strips (the memory controllers facing the stacks).
 const PHY_W = 0.7;
 
-// Satellite chip row (in front of the package) for any non-canonical part.
-const SAT = { y: 26.5, x0: 1, w: 5, d: 3, h: 6, step: 7 };
+// Satellite field (in front of / below the package) for any non-canonical
+// children — laid out on a SCREEN-SPACE lattice that scales with the count so
+// arbitrary N parts (extra dies, tensor cores, unknown comps) never pile up.
+const SAT_FIELD = { x0: 168, x1: 832, y0: 372, y1: 556 }; // screen px bounds
 
 const num = (s?: string): number | undefined => {
   if (!s) return undefined;
@@ -444,14 +446,50 @@ export function GpuScene({
   anchorByKey.l2 = l2Anchor;
   if (hbmAnchors[0]) anchorByKey.hbm = hbmAnchors[0];
 
-  // Satellite chips (any non-canonical child part).
-  const satViews = sats.map((part, i) => {
-    const sx = SAT.x0 + i * SAT.step;
-    const center = rectCenter(sx, SAT.y, SAT.w, SAT.d, SAT.h);
-    anchorByKey[part.partId] = center;
-    if (part.comp) anchorByKey[part.comp] = center;
-    return { part, sx, center };
-  });
+  // Satellite parts (any non-canonical child): extra dies, tensor cores, io
+  // chips, unknown comps. Placed on a SCREEN-SPACE grid that scales with the
+  // count — boxes are positioned by inverting an exact screen lattice back to
+  // floor coords, so the field always stays inside the canvas and N parts lay
+  // out without overlap (each its own labelled hit region).
+  const satN = sats.length;
+  const satCols = Math.max(1, Math.min(satN, Math.ceil(Math.sqrt(satN * 1.7))));
+  const satRows = Math.max(1, Math.ceil(satN / satCols));
+  const satGapX = satCols > 1 ? (SAT_FIELD.x1 - SAT_FIELD.x0) / (satCols - 1) : 0;
+  const satGapY = satRows > 1 ? (SAT_FIELD.y1 - SAT_FIELD.y0) / (satRows - 1) : 0;
+  // Box footprint scales with the smaller screen pitch (with a gap), so dense
+  // grids shrink their boxes instead of colliding. A box's screen width is
+  // (w + d) * U = 2 * satW * U, hence the /(2U) below.
+  const satPitch = Math.min(
+    satCols > 1 ? satGapX : SAT_FIELD.x1 - SAT_FIELD.x0,
+    satRows > 1 ? satGapY : SAT_FIELD.y1 - SAT_FIELD.y0,
+  );
+  const satW = Math.max(1, Math.min(5, (satPitch * 0.62) / (2 * U)));
+  const satD = satW;
+  const satH = Math.max(2.5, Math.min(7, satW * 1.4));
+  const satLabelSize = satN > 16 ? 9 : satN > 8 ? 10 : 11;
+
+  const satViews = sats
+    .map((part, i) => {
+      const c = i % satCols;
+      const r = Math.floor(i / satCols);
+      // centre each (possibly ragged last) row horizontally.
+      const itemsInRow = r < satRows - 1 ? satCols : satN - satCols * (satRows - 1);
+      const rowShift = ((satCols - itemsInRow) / 2) * satGapX;
+      const screenX = satCols > 1 ? SAT_FIELD.x0 + c * satGapX + rowShift : (SAT_FIELD.x0 + SAT_FIELD.x1) / 2;
+      const screenY = satRows > 1 ? SAT_FIELD.y0 + r * satGapY : (SAT_FIELD.y0 + SAT_FIELD.y1) / 2;
+      // invert the iso projection of the box's top-centre back to floor coords.
+      const dxy = (screenX - OX) / U; //         = cx - cy
+      const sxy = (screenY - OY + satH) / V; //   = cx + cy
+      const cxF = (dxy + sxy) / 2;
+      const cyF = (sxy - dxy) / 2;
+      const x = cxF - satW / 2;
+      const y = cyF - satD / 2;
+      const center = rectCenter(x, y, satW, satD, satH);
+      anchorByKey[part.partId] = center;
+      if (part.comp) anchorByKey[part.comp] = center;
+      return { part, x, y, depth: x + y };
+    })
+    .sort((a, b) => a.depth - b.depth); // paint back-to-front
 
   const containerLinks = (container.links ?? []).flatMap((lk, i) => {
     const a = anchorByKey[lk.from];
@@ -716,25 +754,25 @@ export function GpuScene({
       {/* ---- selection outline for HBM (over BOTH groups, on top) ---- */}
       {hbmInteractive && hbmSel && <SelectionOutline outlines={hbmSilhouettes} />}
 
-      {/* ---- satellite chips: any non-canonical child part (front, on top) ---- */}
-      {satViews.map(({ part, sx }) => {
+      {/* ---- satellite parts: any non-canonical child, on a scaling grid ---- */}
+      {satViews.map(({ part, x, y }) => {
         const sel = isSel(part.partId);
-        const sil = boxSilhouette(sx, SAT.y, SAT.w, SAT.d, 0, SAT.h);
+        const sil = boxSilhouette(x, y, satW, satD, 0, satH);
         const accent = sel ? "var(--accent)" : accentFor(part);
-        const top = pt(sx + SAT.w / 2, SAT.y + SAT.d, SAT.h);
+        const top = pt(x + satW / 2, y + satD, satH);
         return (
           <g key={part.partId} className="group" style={{ cursor: "pointer" }} onClick={pick(part)}>
             <polygon points={poly(sil)} fill="transparent" style={{ pointerEvents: "all" }} />
-            <BoxFaces x={sx} y={SAT.y} w={SAT.w} d={SAT.d} z0={0} z1={SAT.h} />
-            <BoxRidge x={sx} y={SAT.y} w={SAT.w} d={SAT.d} z1={SAT.h} color={accent} />
-            <BoxBevel x={sx} y={SAT.y} w={SAT.w} d={SAT.d} z1={SAT.h} />
+            <BoxFaces x={x} y={y} w={satW} d={satD} z0={0} z1={satH} />
+            <BoxRidge x={x} y={y} w={satW} d={satD} z1={satH} color={accent} />
+            <BoxBevel x={x} y={y} w={satW} d={satD} z1={satH} />
             <RegionFx outlines={[sil]} selected={sel} />
             <Label
               x={top[0]}
-              y={top[1] + 16}
+              y={top[1] + 14}
               text={`${part.name}${part.count && part.count > 1 ? ` ×${part.count}` : ""}`}
-              color="var(--canvas-text-muted)"
-              size={11}
+              color={sel ? "var(--canvas-text)" : "var(--canvas-text-muted)"}
+              size={satLabelSize}
             />
           </g>
         );

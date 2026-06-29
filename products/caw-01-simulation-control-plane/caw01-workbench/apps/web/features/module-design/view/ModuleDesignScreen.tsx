@@ -1,13 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import type { HwLevel } from "@caw/core";
+import { useEffect, useRef, useState } from "react";
+import * as yaml from "js-yaml";
+import type { HwLevel, ClusterType } from "@caw/core";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import type { HwSpec, HwTreeNode } from "@/features/simulation/model/fixtures/c3";
+import type {
+  CompKind,
+  HwLink,
+  HwSpec,
+  HwTreeNode,
+  InterconnectKind,
+  TrayKind,
+} from "@/features/simulation/model/fixtures/c3";
 import { IsoScene } from "@/features/simulation/view/canvases/iso/IsoScene";
+import { useDoubleDrillPick } from "@/features/simulation/view/useDoubleDrillPick";
 import { useModuleDesignStore } from "../store";
-import { CHILD_LEVEL, DESIGN_LEVELS, paletteFor, type Asset } from "../assets";
+import {
+  CHILD_LEVEL,
+  DESIGN_LEVELS,
+  FABRIC_KINDS,
+  paletteFor,
+  type Asset,
+} from "../assets";
 
 /**
  * HW MODULE DESIGN — live editor. The working module is a HwTreeNode tree in the
@@ -30,39 +45,113 @@ function findById(node: HwTreeNode, id: string): HwTreeNode | undefined {
   return undefined;
 }
 
-/** Quote a scalar if it contains YAML-special chars (read-only mirror only). */
-const yamlScalar = (x: string): string =>
-  /[:#\n"'{}[\]]|^[\s-]|\s$/.test(x) ? JSON.stringify(x) : x;
+/** Serialize the working tree → YAML for the editable pane (round-trips with
+ *  the parser below). undefined-valued keys are omitted by js-yaml. */
+const dumpYaml = (node: HwTreeNode): string =>
+  yaml.dump(node, { indent: 2, lineWidth: 100, sortKeys: false, noRefs: true });
 
-/** Tiny tree → YAML serializer (no new dependency). Read-only mirror of root. */
-function toYaml(node: HwTreeNode, depth: number): string {
-  const p = "  ".repeat(depth);
-  let out = "";
-  out += `${p}name: ${yamlScalar(node.name)}\n`;
-  out += `${p}partId: ${yamlScalar(node.partId)}\n`;
-  out += `${p}level: ${node.level}\n`;
-  if (node.comp) out += `${p}comp: ${node.comp}\n`;
-  if (node.trayKind) out += `${p}trayKind: ${node.trayKind}\n`;
-  if (node.clusterType) out += `${p}clusterType: ${node.clusterType}\n`;
-  if (node.count != null) out += `${p}count: ${node.count}\n`;
-  const spec = Object.entries(node.spec);
-  if (spec.length) {
-    out += `${p}spec:\n`;
-    for (const [k, v] of spec) out += `${p}  ${yamlScalar(k)}: ${yamlScalar(v)}\n`;
-  }
-  if (node.links?.length) {
-    out += `${p}links:\n`;
-    for (const l of node.links)
-      out +=
-        `${p}  - { from: ${yamlScalar(l.from)}, to: ${yamlScalar(l.to)}, ` +
-        `kind: ${l.kind}${l.label ? `, label: ${yamlScalar(l.label)}` : ""} }\n`;
-  }
-  if (node.children?.length) {
-    out += `${p}children:\n`;
-    const cp = "  ".repeat(depth + 1);
-    for (const c of node.children) out += `${cp}-\n${toYaml(c, depth + 2)}`;
+/* ---- YAML → HwTreeNode (validate shape; throw a readable error) ----------- */
+
+const VALID_LEVELS: readonly HwLevel[] = [
+  "data_center",
+  "client",
+  "cluster",
+  "rack",
+  "tray",
+  "package",
+  "die",
+  "chip",
+  "component",
+];
+
+/** Coerce a YAML scalar to a string (numbers/bools allowed in spec values). */
+const scalar = (v: unknown): string | undefined =>
+  typeof v === "string"
+    ? v
+    : typeof v === "number" || typeof v === "boolean"
+      ? String(v)
+      : undefined;
+
+function parseSpec(v: unknown, path: string): HwSpec {
+  if (v == null) return {};
+  if (typeof v !== "object" || Array.isArray(v))
+    throw new Error(`${path}.spec must be a mapping`);
+  const out: HwSpec = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    const s = scalar(val);
+    if (s == null) throw new Error(`${path}.spec.${k} must be a scalar`);
+    out[k] = s;
   }
   return out;
+}
+
+function parseLinks(v: unknown, path: string): HwLink[] | undefined {
+  if (v == null) return undefined;
+  if (!Array.isArray(v)) throw new Error(`${path}.links must be a list`);
+  return v.map((raw, i) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      throw new Error(`${path}.links[${i}] must be a mapping`);
+    const o = raw as Record<string, unknown>;
+    const from = scalar(o.from);
+    const to = scalar(o.to);
+    const kind = scalar(o.kind);
+    if (!from || !to)
+      throw new Error(`${path}.links[${i}] needs 'from' and 'to'`);
+    if (!kind || !FABRIC_KINDS.some((f) => f.kind === kind))
+      throw new Error(`${path}.links[${i}].kind is invalid ('${kind ?? ""}')`);
+    const label = scalar(o.label);
+    return {
+      from,
+      to,
+      kind: kind as InterconnectKind,
+      ...(label ? { label } : {}),
+    };
+  });
+}
+
+/** Parse one node (recursively). Throws Error with a path-prefixed message. */
+function asTree(x: unknown, path: string): HwTreeNode {
+  if (!x || typeof x !== "object" || Array.isArray(x))
+    throw new Error(`${path} must be a mapping`);
+  const o = x as Record<string, unknown>;
+  const name = scalar(o.name);
+  const partId = scalar(o.partId);
+  const level = scalar(o.level);
+  if (!name) throw new Error(`${path}.name is required`);
+  if (!partId) throw new Error(`${path}.partId is required`);
+  if (!level || !VALID_LEVELS.includes(level as HwLevel))
+    throw new Error(`${path}.level is invalid ('${level ?? ""}')`);
+
+  const node: HwTreeNode = {
+    partId,
+    name,
+    level: level as HwLevel,
+    spec: parseSpec(o.spec, path),
+  };
+
+  const role = scalar(o.role);
+  if (role) node.role = role;
+  if (o.count != null) {
+    const c = Number(o.count);
+    if (!Number.isFinite(c)) throw new Error(`${path}.count must be a number`);
+    node.count = c;
+  }
+  const comp = scalar(o.comp);
+  if (comp) node.comp = comp as CompKind;
+  const trayKind = scalar(o.trayKind);
+  if (trayKind) node.trayKind = trayKind as TrayKind;
+  const clusterType = scalar(o.clusterType);
+  if (clusterType) node.clusterType = clusterType as ClusterType;
+  const links = parseLinks(o.links, path);
+  if (links) node.links = links;
+  if (o.children != null) {
+    if (!Array.isArray(o.children))
+      throw new Error(`${path}.children must be a list`);
+    node.children = o.children.map((c, i) =>
+      asTree(c, `${path}.children[${i}]`),
+    );
+  }
+  return node;
 }
 
 // ---- mode tabs -------------------------------------------------------------
@@ -83,7 +172,10 @@ export function ModuleDesignScreen() {
   useModuleDesignStore((s) => s.focusId);
 
   const startDesign = useModuleDesignStore((s) => s.startDesign);
+  const setRoot = useModuleDesignStore((s) => s.setRoot);
   const addChild = useModuleDesignStore((s) => s.addChild);
+  const addLink = useModuleDesignStore((s) => s.addLink);
+  const removeLink = useModuleDesignStore((s) => s.removeLink);
   const updateNode = useModuleDesignStore((s) => s.updateNode);
   const removeNode = useModuleDesignStore((s) => s.removeNode);
   const select = useModuleDesignStore((s) => s.select);
@@ -96,6 +188,56 @@ export function ModuleDesignScreen() {
   // The palette + canvas key off the FOCUSED node (drill to compose deeper), not
   // the static top design level — so each level offers its correct child assets.
   const focus = focusNode();
+
+  // ---- canvas picking: single = select, double / Ctrl = drill in -----------
+  const drillPick = useDoubleDrillPick(select, focusInto);
+
+  // ---- "Connect" mode (drag is impractical across SVG scenes): click source,
+  // then target, then pick a fabric kind → addLink on the focused node. --------
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const [menuTarget, setMenuTarget] = useState<string | null>(null);
+
+  // Reset any in-progress connection when the drill focus changes.
+  const focusId = focus?.partId;
+  useEffect(() => {
+    setConnectFrom(null);
+    setMenuTarget(null);
+  }, [focusId]);
+
+  const handlePick = (id: string, modifier: boolean) => {
+    if (!connectMode) {
+      drillPick(id, modifier);
+      return;
+    }
+    if (!connectFrom) {
+      setConnectFrom(id);
+      select(id);
+      return;
+    }
+    if (id === connectFrom) {
+      setConnectFrom(null); // re-clicking the source cancels
+      return;
+    }
+    setMenuTarget(id);
+  };
+
+  const chooseKind = (kind: InterconnectKind) => {
+    if (connectFrom && menuTarget) addLink(connectFrom, menuTarget, kind);
+    setMenuTarget(null);
+    setConnectFrom(null); // stay in connect mode for chaining
+  };
+
+  const toggleConnect = () => {
+    setConnectMode((m) => !m);
+    setConnectFrom(null);
+    setMenuTarget(null);
+  };
+
+  const cancelConnect = () => {
+    setConnectFrom(null);
+    setMenuTarget(null);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -114,14 +256,22 @@ export function ModuleDesignScreen() {
             focus={focus}
             crumbs={focusPath()}
             selectedId={selectedId}
-            onPick={(id, drill) => (drill ? focusInto(id) : select(id))}
+            onPick={handlePick}
             onCrumb={(id) => focusTo(id)}
+            connectMode={connectMode}
+            connectFrom={connectFrom}
+            menuOpen={!!menuTarget}
+            onToggleConnect={toggleConnect}
+            onChooseKind={chooseKind}
+            onCancelConnect={cancelConnect}
+            onRemoveLink={removeLink}
           />
           <Inspector
             root={root}
             selectedId={selectedId}
             onUpdate={updateNode}
             onRemove={removeNode}
+            onSetRoot={setRoot}
           />
         </div>
       )}
@@ -304,18 +454,37 @@ function CanvasPane({
   selectedId,
   onPick,
   onCrumb,
+  connectMode,
+  connectFrom,
+  menuOpen,
+  onToggleConnect,
+  onChooseKind,
+  onCancelConnect,
+  onRemoveLink,
 }: {
   focus: HwTreeNode | null;
   crumbs: HwTreeNode[];
   selectedId: string | null;
   onPick: (id: string, drill: boolean) => void;
   onCrumb: (id: string) => void;
+  connectMode: boolean;
+  connectFrom: string | null;
+  menuOpen: boolean;
+  onToggleConnect: () => void;
+  onChooseKind: (kind: InterconnectKind) => void;
+  onCancelConnect: () => void;
+  onRemoveLink: (index: number) => void;
 }) {
   if (!focus) return <div className="bg-canvas-bg" />;
 
+  // child partId → display name (for the connect prompt + connections list).
+  const nameOf = (id: string): string =>
+    focus.children?.find((c) => c.partId === id)?.name ?? id;
+  const links = focus.links ?? [];
+
   return (
     <section className="flex min-h-0 flex-col bg-canvas-bg">
-      {/* breadcrumb */}
+      {/* breadcrumb + connect toolbar */}
       <div className="flex flex-wrap items-center gap-1 border-b border-canvas-grid px-3 py-2">
         {crumbs.map((node, i) => {
           const last = i === crumbs.length - 1;
@@ -339,7 +508,41 @@ function CanvasPane({
             </span>
           );
         })}
+
+        <button
+          type="button"
+          onClick={onToggleConnect}
+          className={cn(
+            "ml-auto rounded-[var(--radius-sm)] border px-2 py-0.5 font-readout text-xs transition-colors",
+            connectMode
+              ? "border-accent text-accent"
+              : "border-canvas-grid text-canvas-text-muted hover:bg-canvas-tile",
+          )}
+          title="Create an interconnect: click a source part, then a target, then pick a fabric."
+        >
+          {connectMode ? "Connecting…" : "Connect"}
+        </button>
       </div>
+
+      {/* connect-mode prompt */}
+      {connectMode && (
+        <div className="flex items-center gap-2 border-b border-canvas-grid bg-canvas-tile px-3 py-1.5">
+          <span className="font-readout text-xs text-canvas-text-muted">
+            {connectFrom
+              ? `Source: ${nameOf(connectFrom)} — click a target part`
+              : "Click a source part to connect"}
+          </span>
+          {connectFrom && (
+            <button
+              type="button"
+              onClick={onCancelConnect}
+              className="rounded-[var(--radius-sm)] px-1.5 py-0.5 font-readout text-xs text-canvas-text-dim hover:bg-canvas-bg"
+            >
+              cancel
+            </button>
+          )}
+        </div>
+      )}
 
       {/* live twin canvas — re-renders on every store edit */}
       <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -356,6 +559,64 @@ function CanvasPane({
             </span>
           </div>
         )}
+
+        {/* fabric-type menu (after a source + target have been picked) */}
+        {menuOpen && (
+          <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-md)] border border-canvas-grid bg-surface p-3 shadow-lg">
+            <p className="mb-2 text-xs font-semibold text-text-muted">
+              Fabric type
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {FABRIC_KINDS.map((f) => (
+                <button
+                  key={f.kind}
+                  type="button"
+                  onClick={() => onChooseKind(f.kind)}
+                  className="rounded-[var(--radius-sm)] border border-border px-2.5 py-1 text-left font-readout text-xs hover:bg-surface-muted"
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={onCancelConnect}
+              className="mt-2 w-full rounded-[var(--radius-sm)] px-2 py-1 font-readout text-xs text-text-muted hover:bg-surface-muted"
+            >
+              cancel
+            </button>
+          </div>
+        )}
+
+        {/* existing interconnects on the focused node (remove individually) */}
+        {links.length > 0 && (
+          <div className="absolute bottom-2 left-2 max-h-40 w-64 overflow-auto rounded-[var(--radius-md)] border border-canvas-grid bg-surface/95 p-2">
+            <p className="mb-1 font-readout text-[10px] uppercase tracking-wide text-text-muted">
+              Interconnects
+            </p>
+            <ul className="space-y-0.5">
+              {links.map((l, i) => (
+                <li
+                  key={`${l.from}-${l.to}-${l.kind}-${i}`}
+                  className="flex items-center gap-1 font-readout text-[10px] text-text"
+                >
+                  <span className="truncate">
+                    {nameOf(l.from)} → {nameOf(l.to)}
+                  </span>
+                  <span className="text-text-muted">[{l.kind}]</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveLink(i)}
+                    className="ml-auto rounded-[var(--radius-sm)] px-1 text-text-muted hover:bg-surface-muted"
+                    title="remove interconnect"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -368,11 +629,13 @@ function Inspector({
   selectedId,
   onUpdate,
   onRemove,
+  onSetRoot,
 }: {
   root: HwTreeNode;
   selectedId: string | null;
   onUpdate: (id: string, patch: Partial<HwTreeNode>) => void;
   onRemove: (id: string) => void;
+  onSetRoot: (root: HwTreeNode) => void;
 }) {
   const [saved, setSaved] = useState(false);
   const node = selectedId ? findById(root, selectedId) : undefined;
@@ -528,14 +791,80 @@ function Inspector({
         </div>
         <details className="mt-3" open>
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-text-muted">
-            YAML
+            YAML (editable)
           </summary>
-          <pre className="mt-2 max-h-64 overflow-auto rounded-[var(--radius-sm)] border border-border bg-background p-2 font-readout text-[10px] leading-relaxed text-text">
-            {toYaml(root, 0)}
-          </pre>
+          <YamlEditor root={root} onApply={onSetRoot} />
         </details>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Editable YAML mirror of the working tree (two-way). Typing parses + validates
+ * the YAML and, when valid, pushes the new tree to the store (live canvas);
+ * invalid YAML shows an inline error and leaves the canvas untouched. External
+ * edits (palette / inspector) re-serialize back into the textarea.
+ */
+function YamlEditor({
+  root,
+  onApply,
+}: {
+  root: HwTreeNode;
+  onApply: (tree: HwTreeNode) => void;
+}) {
+  const [text, setText] = useState(() => dumpYaml(root));
+  const [error, setError] = useState<string | null>(null);
+  // when WE caused the root change, skip the re-serialize so typing isn't fought.
+  const selfEdit = useRef(false);
+
+  useEffect(() => {
+    if (selfEdit.current) {
+      selfEdit.current = false;
+      return;
+    }
+    setText(dumpYaml(root));
+    setError(null);
+  }, [root]);
+
+  const onChange = (value: string) => {
+    setText(value);
+    let parsed: unknown;
+    try {
+      parsed = yaml.load(value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "invalid YAML");
+      return;
+    }
+    try {
+      const tree = asTree(parsed, "root");
+      setError(null);
+      selfEdit.current = true;
+      onApply(tree);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "invalid shape");
+    }
+  };
+
+  return (
+    <div className="mt-2">
+      <textarea
+        value={text}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "h-64 w-full resize-y rounded-[var(--radius-sm)] border bg-background p-2 font-readout text-[10px] leading-relaxed text-text",
+          error ? "border-danger" : "border-border",
+        )}
+      />
+      {error ? (
+        <p className="mt-1 font-readout text-[10px] text-danger">{error}</p>
+      ) : (
+        <p className="mt-1 font-readout text-[10px] text-text-muted">
+          valid — canvas is live
+        </p>
+      )}
+    </div>
   );
 }
 

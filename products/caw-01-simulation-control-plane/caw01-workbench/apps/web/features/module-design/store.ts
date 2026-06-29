@@ -4,8 +4,9 @@ import type {
   HwTreeNode,
   HwLink,
   CompKind,
+  InterconnectKind,
 } from "@/features/simulation/model/fixtures/c3";
-import { type Asset, instantiate, newRoot } from "./assets";
+import { type Asset, instantiate, newRoot, fabricLabel } from "./assets";
 
 /**
  * HW Module Design editing state. The working module is a HwTreeNode tree; every
@@ -60,7 +61,16 @@ function autoLinks(node: HwTreeNode): HwTreeNode {
   for (const n of kids.filter((k) => k.comp === "nic")) {
     if (osfp) links.push({ from: n.partId, to: osfp.partId, kind: "osfp", label: "scale-out" });
   }
-  return links.length ? { ...node, links } : node;
+  // MERGE (don't clobber): keep any manually-drawn links, append missing auto
+  // edges, dedupe by from+to+kind. This way drag-to-connect links survive a
+  // later addChild() (which re-runs withAutoLinks over the whole tree).
+  const existing = node.links ?? [];
+  const merged = [...existing];
+  for (const al of links) {
+    if (!merged.some((l) => l.from === al.from && l.to === al.to && l.kind === al.kind))
+      merged.push(al);
+  }
+  return merged.length ? { ...node, links: merged } : node;
 }
 
 /** Recompute auto-links for every tray node in the tree. */
@@ -74,7 +84,10 @@ interface ModuleDesignState {
   seq: number;
 
   startDesign: (level: HwLevel) => void;
+  setRoot: (root: HwTreeNode) => void; // replace the whole tree (e.g. YAML edit)
   addChild: (asset: Asset) => void; // appends to the focused node
+  addLink: (fromId: string, toId: string, kind: InterconnectKind) => void;
+  removeLink: (index: number) => void; // remove the i-th link of the focused node
   updateNode: (id: string, patch: Partial<HwTreeNode>) => void;
   removeNode: (id: string) => void;
   select: (id: string | null) => void;
@@ -107,6 +120,19 @@ export const useModuleDesignStore = create<ModuleDesignState>((set, get) => ({
       };
     }),
 
+  // Replace the entire working tree (the editable YAML pane calls this with a
+  // freshly parsed + validated tree). Keep focus/selection valid against the new
+  // tree; track the design level from the new root.
+  setRoot: (root) =>
+    set((s) => ({
+      root,
+      designLevel: root.level,
+      focusId:
+        s.focusId && findNode(root, s.focusId) ? s.focusId : root.partId,
+      selectedId:
+        s.selectedId && findNode(root, s.selectedId) ? s.selectedId : null,
+    })),
+
   addChild: (asset) =>
     set((s) => {
       if (!s.root || !s.focusId) return s;
@@ -118,6 +144,31 @@ export const useModuleDesignStore = create<ModuleDesignState>((set, get) => ({
           : n,
       );
       return { root: withAutoLinks(next), seq, selectedId: child.partId };
+    }),
+
+  // Append a typed interconnect to the FOCUSED node (its children render the
+  // edge via TrayScene/GpuScene). from/to are child partIds.
+  addLink: (fromId, toId, kind) =>
+    set((s) => {
+      if (!s.root || !s.focusId || fromId === toId) return s;
+      const link: HwLink = { from: fromId, to: toId, kind, label: fabricLabel(kind) };
+      const root = mapTree(s.root, (n) =>
+        n.partId === s.focusId
+          ? { ...n, links: [...(n.links ?? []), link] }
+          : n,
+      );
+      return { root };
+    }),
+
+  removeLink: (index) =>
+    set((s) => {
+      if (!s.root || !s.focusId) return s;
+      const root = mapTree(s.root, (n) =>
+        n.partId === s.focusId && n.links
+          ? { ...n, links: n.links.filter((_, i) => i !== index) }
+          : n,
+      );
+      return { root };
     }),
 
   updateNode: (id, patch) =>

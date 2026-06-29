@@ -1,5 +1,8 @@
 import type { HwLevel } from "@caw/core";
-import type { HwTreeNode } from "@/features/simulation/model/fixtures/c3";
+import type {
+  HwTreeNode,
+  InterconnectKind,
+} from "@/features/simulation/model/fixtures/c3";
 
 /**
  * HW Module Design asset library. You design top-down by picking a LEVEL
@@ -78,11 +81,23 @@ export const ASSETS: Record<string, Asset[]> = {
       role: "rack NVLink fabric",
       spec: { nvswitch_chips: "2", tray_bw: "14.4 TB/s" },
     }),
-    A("tray-network", "Network tray", "tray", {
-      name: "network-tray",
+    A("tray-network", "ToR switch tray", "tray", {
+      name: "tor-switch-tray",
       trayKind: "network",
-      role: "ToR leaf / spine",
+      role: "in-rack leaf (ToR)",
       spec: { ports: "64 x 800G" },
+    }),
+    A("tray-spine", "Spine switch tray", "tray", {
+      name: "spine-switch-tray",
+      trayKind: "network",
+      role: "fabric spine / aggregation",
+      spec: { ports: "144 x 800G", throughput: "51.2 Tbps" },
+    }),
+    A("tray-ib", "IB switch tray", "tray", {
+      name: "ib-switch-tray",
+      trayKind: "network",
+      role: "InfiniBand spine (Quantum-X800)",
+      spec: { ports: "144 x 800G", asic: "Quantum-3" },
     }),
     A("tray-power", "Power shelf", "tray", {
       name: "power-shelf",
@@ -111,6 +126,22 @@ export const ASSETS: Record<string, Asset[]> = {
     A("pkg-nvswitch", "NVSwitch", "package", {
       name: "nvswitch", comp: "nvswitch", role: "NVLink crossbar",
       spec: { ports: "72", throughput: "7.2 TB/s" },
+    }),
+    A("pkg-tor-switch", "ToR switch", "package", {
+      name: "tor-switch", comp: "nvswitch", role: "top-of-rack leaf switch",
+      spec: { ports: "64 x 800G", throughput: "51.2 Tbps", fabric: "Ethernet / IB" },
+    }),
+    A("pkg-spine-switch", "Spine switch", "package", {
+      name: "spine-switch", comp: "nvswitch", role: "fabric spine / aggregation",
+      spec: { ports: "144 x 800G", throughput: "115 Tbps" },
+    }),
+    A("pkg-ib-switch", "IB switch", "package", {
+      name: "ib-switch", comp: "nvswitch", role: "InfiniBand switch (Quantum-X800)",
+      spec: { ports: "144 x 800G", asic: "Quantum-3", fabric: "XDR IB" },
+    }),
+    A("pkg-eth-switch", "Ethernet switch", "package", {
+      name: "ethernet-switch", comp: "nvswitch", role: "RoCEv2 Ethernet switch (Spectrum-X)",
+      spec: { ports: "64 x 800GbE", throughput: "51.2 Tbps", fabric: "Ethernet" },
     }),
     A("pkg-nic", "ConnectX NIC", "package", {
       name: "connectx", comp: "nic", role: "scale-out NIC",
@@ -158,6 +189,28 @@ export function paletteFor(designLevel: HwLevel): Asset[] {
 export function instantiate(asset: Asset, seq: number): HwTreeNode {
   return { ...asset.template, partId: `${asset.key}-${seq}` };
 }
+
+/**
+ * Fabric / interconnect kinds offered in the drag-to-connect menu. Multiple
+ * fabrics may coexist on one node. `kind` is the stored `HwLink.kind`; `label`
+ * is the default edge label + the menu/legend caption.
+ */
+export const FABRIC_KINDS: ReadonlyArray<{
+  kind: InterconnectKind;
+  label: string;
+}> = [
+  { kind: "pcie", label: "PCIe" },
+  { kind: "nvlink", label: "NVLink" },
+  { kind: "c2c", label: "C2C" },
+  { kind: "cxl", label: "CXL" },
+  { kind: "osfp", label: "OSFP" },
+  { kind: "ib", label: "InfiniBand" },
+  { kind: "ethernet", label: "Ethernet" },
+];
+
+/** Default edge label for a fabric kind (used when a link is created). */
+export const fabricLabel = (kind: InterconnectKind): string =>
+  FABRIC_KINDS.find((f) => f.kind === kind)?.label ?? kind;
 
 /** A fresh empty root for a chosen design level. */
 export function newRoot(level: HwLevel, seq: number): HwTreeNode {
