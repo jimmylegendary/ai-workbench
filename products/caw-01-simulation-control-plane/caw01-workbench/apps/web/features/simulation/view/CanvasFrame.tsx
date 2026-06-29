@@ -68,7 +68,7 @@ export function CanvasFrame({
       )}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-canvas-grid px-2 py-1">
-        <span className="shrink-0 font-readout text-[10px] uppercase tracking-wide text-[#8b96a5]">
+        <span className="shrink-0 font-readout text-[10px] uppercase tracking-wide text-canvas-text-muted">
           {title}
         </span>
         {canBack && (
@@ -80,16 +80,16 @@ export function CanvasFrame({
             }}
             title="Back one level (Backspace)"
             aria-label="Back one level"
-            className="shrink-0 rounded-[var(--radius-sm)] px-1 text-xs leading-none text-[#8b96a5] hover:bg-white/5 hover:text-accent"
+            className="shrink-0 rounded-[var(--radius-sm)] px-1 text-xs leading-none text-canvas-text-muted hover:bg-white/5 hover:text-accent"
           >
             ←
           </button>
         )}
         {crumbs.length > 0 && (
-          <nav className="flex min-w-0 items-center gap-1 overflow-hidden font-readout text-[10px] text-[#8b96a5]">
+          <nav className="flex min-w-0 items-center gap-1 overflow-hidden font-readout text-[10px] text-canvas-text-muted">
             {crumbs.map((c, i) => (
               <span key={`${c.label}:${i}`} className="flex items-center gap-1">
-                {i > 0 && <span className="text-[#566273]">›</span>}
+                {i > 0 && <span className="text-canvas-text-dim">›</span>}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -98,7 +98,7 @@ export function CanvasFrame({
                   }}
                   className={cn(
                     "truncate hover:text-accent",
-                    i === crumbs.length - 1 ? "text-accent" : "text-[#8b96a5]",
+                    i === crumbs.length - 1 ? "text-accent" : "text-canvas-text-muted",
                   )}
                 >
                   {c.label}
@@ -115,7 +115,7 @@ export function CanvasFrame({
           }}
           title="Fullscreen"
           aria-label="Toggle fullscreen"
-          className="ml-auto shrink-0 rounded-[var(--radius-sm)] px-1 text-sm leading-none text-[#8b96a5] hover:bg-white/5 hover:text-accent"
+          className="ml-auto shrink-0 rounded-[var(--radius-sm)] px-1 text-sm leading-none text-canvas-text-muted hover:bg-white/5 hover:text-accent"
         >
           ⤢
         </button>

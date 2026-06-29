@@ -21,6 +21,21 @@
   --danger: #dc2626;
   --canvas-bg: #0e1116;
   --canvas-grid: #1c232b;
+  /* canvas-surface text + tile — the canvas is ALWAYS dark (both themes), so
+     these are fixed light values, never the theme text tokens (which go black
+     in light mode and vanish on the dark canvas). */
+  --canvas-text: #e6e8eb;
+  --canvas-text-muted: #9aa1ac;
+  --canvas-text-dim: #5b6573;
+  --canvas-tile: #1a2129;
+  /* categorical palette for node KINDS / taxonomy — intentionally OFF the
+     status hues. success/warning/danger/accent(cyan)/primary(blue) stay
+     reserved for run-state, edge-validity, and selection only (DESIGN.md §2/§9). */
+  --cat-io: #94a3b8;
+  --cat-router: #6366f1;
+  --cat-llm: #a855f7;
+  --cat-tool: #2dd4bf;
+  --cat-memory: #f472b6;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
@@ -54,6 +69,15 @@
   --color-danger: var(--danger);
   --color-canvas-bg: var(--canvas-bg);
   --color-canvas-grid: var(--canvas-grid);
+  --color-canvas-text: var(--canvas-text);
+  --color-canvas-text-muted: var(--canvas-text-muted);
+  --color-canvas-text-dim: var(--canvas-text-dim);
+  --color-canvas-tile: var(--canvas-tile);
+  --color-cat-io: var(--cat-io);
+  --color-cat-router: var(--cat-router);
+  --color-cat-llm: var(--cat-llm);
+  --color-cat-tool: var(--cat-tool);
+  --color-cat-memory: var(--cat-memory);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);

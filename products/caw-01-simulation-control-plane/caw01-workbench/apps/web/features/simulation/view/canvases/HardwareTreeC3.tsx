@@ -2,7 +2,6 @@
 
 import { useMemo, type MouseEvent } from "react";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { useWorkbenchStore } from "@/store/workbenchStore";
 import {
   c3PartsById,
@@ -14,32 +13,27 @@ import { DrillHint } from "../DrillHint";
 
 /**
  * Canvas 3 — Hardware design, as a FRACTAL hardware schematic / floorplan.
- * The current drill level (store: drill.c3, an array of partIds) renders its
- * child parts as nested rectangles on the dark canvas — a board/package/die
- * layout, sized to fill — each labelled with a mono spec readout.
+ * The current drill level (store: drill.c3) renders its child parts as nested
+ * rectangles on the dark canvas — a board/package/die layout, sized to fill —
+ * each labelled with a mono spec readout.
  *
  *   Plain click       → select({canvas:'c3', partId})  (cross-canvas pick)
  *   Ctrl/⌘+click       → drillInto('c3', partId)        (descend; parts WITH children)
- *   breadcrumb crumb i → drillTo('c3', i-1)             (ascend)
+ *   breadcrumb crumb i → drillTo('c3', i-1)             (ascend)  ·  ← / Backspace = up one
  *
- * Read-only instrument layout; color only carries the part's level. The picked
- * partId is published to the shared store and read back by PartInspector and the
- * inline spec readout below.
+ * Color rule: tiles + text use CANVAS tokens (the canvas is always dark);
+ * hierarchy level is shown with a NEUTRAL tag — the reserved status hues
+ * (success/warning/danger/cyan) are kept for run-state / validity / selection.
  */
 
-/** Level → Badge tone (color pairs with the level text — color-blind-safe). */
-const levelTone = {
-  cluster: "running",
-  rack: "running",
-  tray: "warning",
-  package: "warning",
-  die: "neutral",
-  chip: "success",
-  component: "success",
-} as const satisfies Record<
-  HwTreeNode["level"],
-  "neutral" | "running" | "success" | "danger" | "warning"
->;
+/** Neutral (canvas-grey) hierarchy-level tag — taxonomy, not status. */
+function LevelTag({ level }: { level: HwTreeNode["level"] }) {
+  return (
+    <span className="shrink-0 rounded-[var(--radius-sm)] border border-canvas-grid bg-canvas-bg px-1 font-readout text-[10px] uppercase tracking-wide text-canvas-text-muted">
+      {level}
+    </span>
+  );
+}
 
 /** Near-square column count to lay N rectangles out to fill the area. */
 const gridCols = (n: number): number => Math.max(1, Math.ceil(Math.sqrt(n)));
@@ -59,9 +53,13 @@ export function HardwareTreeC3() {
       ? c3PartsById[selection.partId]
       : undefined;
 
-  const onPartClick = (event: MouseEvent<HTMLButtonElement>, part: HwTreeNode): void => {
+  const onPartClick = (
+    event: MouseEvent<HTMLButtonElement>,
+    part: HwTreeNode,
+  ): void => {
     const hasChildren = !!part.children && part.children.length > 0;
-    if ((event.ctrlKey || event.metaKey) && hasChildren) drillInto("c3", part.partId);
+    if ((event.ctrlKey || event.metaKey) && hasChildren)
+      drillInto("c3", part.partId);
     else select({ canvas: "c3", partId: part.partId });
   };
 
@@ -84,7 +82,9 @@ export function HardwareTreeC3() {
       <div className="relative h-full w-full overflow-hidden bg-canvas-bg">
         {parts.length === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <p className="font-readout text-xs text-[#566273]">— leaf part: no interior —</p>
+            <p className="font-readout text-xs text-canvas-text-dim">
+              — leaf part: no interior —
+            </p>
           </div>
         ) : (
           <div
@@ -107,23 +107,25 @@ export function HardwareTreeC3() {
                   type="button"
                   onClick={(e) => onPartClick(e, part)}
                   title={
-                    hasChildren ? `${part.partId} — Ctrl+click to drill in` : part.partId
+                    hasChildren
+                      ? `${part.partId} — Ctrl/⌘+click to drill in`
+                      : part.partId
                   }
                   className={cn(
                     "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-sm)]",
-                    "border bg-surface/[0.04] p-1.5 text-left transition-colors",
+                    "border bg-canvas-tile p-1.5 text-left transition-colors",
                     isSelected
                       ? "border-accent ring-2 ring-accent"
-                      : "border-canvas-grid hover:border-text-muted",
+                      : "border-canvas-grid hover:border-canvas-text-muted",
                   )}
                 >
-                  {/* header: level badge + name + partId */}
+                  {/* header: level tag + name + drill affordance */}
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <Badge tone={levelTone[part.level]}>{part.level}</Badge>
+                    <LevelTag level={part.level} />
                     <span
                       className={cn(
                         "font-readout truncate text-xs",
-                        isSelected ? "text-accent" : "text-text",
+                        isSelected ? "text-accent" : "text-canvas-text",
                       )}
                     >
                       {part.name}
@@ -131,7 +133,7 @@ export function HardwareTreeC3() {
                     {hasChildren && (
                       <span
                         aria-hidden
-                        className="ml-auto shrink-0 font-readout text-[10px] text-[#566273] group-hover:text-accent"
+                        className="ml-auto shrink-0 font-readout text-[10px] text-canvas-text-dim group-hover:text-accent"
                       >
                         ↘
                       </span>
@@ -143,9 +145,12 @@ export function HardwareTreeC3() {
                     {specEntries.map(([key, value]) => (
                       <span
                         key={key}
-                        className="font-readout truncate text-[10px] text-text-muted"
+                        className="font-readout truncate text-[10px] text-canvas-text-muted"
                       >
-                        {key} <span className="tabular-nums text-text">{value}</span>
+                        {key}{" "}
+                        <span className="tabular-nums text-canvas-text">
+                          {value}
+                        </span>
                       </span>
                     ))}
                   </div>
@@ -163,9 +168,9 @@ export function HardwareTreeC3() {
                       {children.map((child) => (
                         <div
                           key={child.partId}
-                          className="flex min-h-0 min-w-0 items-center justify-center rounded-[2px] border border-canvas-grid bg-canvas-bg/50 px-1"
+                          className="flex min-h-0 min-w-0 items-center justify-center rounded-[2px] border border-canvas-grid bg-canvas-bg px-1"
                         >
-                          <span className="font-readout truncate text-[9px] leading-none text-[#566273]">
+                          <span className="font-readout truncate text-[9px] leading-none text-canvas-text-dim">
                             {child.name}
                           </span>
                         </div>
@@ -182,19 +187,19 @@ export function HardwareTreeC3() {
         {selectedPart && (
           <div className="pointer-events-none absolute bottom-1.5 left-2 z-10 max-w-[60%] rounded-[var(--radius-sm)] border border-canvas-grid bg-canvas-bg/90 px-2 py-1.5">
             <div className="flex items-center gap-1.5">
-              <Badge tone={levelTone[selectedPart.level]}>{selectedPart.level}</Badge>
+              <LevelTag level={selectedPart.level} />
               <span className="font-readout truncate text-xs text-accent">
                 {selectedPart.name}
               </span>
-              <span className="font-readout shrink-0 text-[9px] text-[#566273]">
+              <span className="font-readout shrink-0 text-[9px] text-canvas-text-dim">
                 {selectedPart.partId}
               </span>
             </div>
             <dl className="mt-1 flex flex-col gap-0.5 font-readout text-[10px]">
               {Object.entries(selectedPart.spec).map(([key, value]) => (
                 <div key={key} className="flex items-baseline gap-3">
-                  <dt className="text-text-muted">{key}</dt>
-                  <dd className="ml-auto tabular-nums text-text">{value}</dd>
+                  <dt className="text-canvas-text-muted">{key}</dt>
+                  <dd className="ml-auto tabular-nums text-canvas-text">{value}</dd>
                 </div>
               ))}
             </dl>

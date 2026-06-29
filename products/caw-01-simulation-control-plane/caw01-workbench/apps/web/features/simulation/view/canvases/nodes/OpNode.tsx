@@ -1,39 +1,51 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type {
   HarnessFlowNode,
   HarnessKind,
 } from "@/features/simulation/model/fixtures/c1";
 
-/** Kind → Badge tone. Color is the only thing carrying the role distinction. */
-const kindTone = {
-  io: "neutral",
-  router: "warning",
-  llm: "running",
-  tool: "success",
-  memory: "danger",
-} as const satisfies Record<
-  HarnessKind,
-  "neutral" | "running" | "success" | "danger" | "warning"
->;
+/**
+ * Kind → CATEGORICAL color (a dedicated palette, OFF the status hues). Color
+ * here encodes the harness role (io/router/llm/tool/memory), never run-state —
+ * status green/amber/red/cyan stay reserved (DESIGN.md §2/§9).
+ */
+const kindText: Record<HarnessKind, string> = {
+  io: "text-cat-io",
+  router: "text-cat-router",
+  llm: "text-cat-llm",
+  tool: "text-cat-tool",
+  memory: "text-cat-memory",
+};
+const kindBar: Record<HarnessKind, string> = {
+  io: "bg-cat-io",
+  router: "bg-cat-router",
+  llm: "bg-cat-llm",
+  tool: "bg-cat-tool",
+  memory: "bg-cat-memory",
+};
 
 /**
  * Canvas-1 custom node = one harness step (io | router | llm | tool | memory).
- * Renders the label + a kind Badge, with typed handles (left target "in",
- * right source "out"). Rings cyan when selected; if data.drillTo is set it
- * shows a subtle "⤢" affordance (Ctrl+click descends into its sub-level).
+ * White tile on the dark canvas; a left bar + chip carry the (categorical) kind.
+ * Rings cyan when selected; a "⤢" affordance marks a drillable node.
  */
 export function OpNode({ data, selected }: NodeProps<HarnessFlowNode>) {
   return (
     <div
       className={cn(
-        "min-w-[150px] rounded-[var(--radius-md)] border border-border bg-surface px-3 py-2 shadow-sm",
+        "relative min-w-[160px] overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface py-2 pl-3.5 pr-3 shadow-sm",
         selected && "ring-2 ring-accent",
       )}
     >
+      {/* categorical kind accent bar */}
+      <span
+        aria-hidden
+        className={cn("absolute inset-y-0 left-0 w-1", kindBar[data.kind])}
+      />
+
       <Handle
         type="target"
         position={Position.Left}
@@ -45,7 +57,7 @@ export function OpNode({ data, selected }: NodeProps<HarnessFlowNode>) {
         <span className="font-readout text-xs text-text">{data.label}</span>
         {data.drillTo && (
           <span
-            title="Ctrl+click to drill in"
+            title="Ctrl/⌘+click to drill in"
             aria-label="drillable"
             className="font-readout text-[10px] leading-none text-text-muted"
           >
@@ -54,7 +66,15 @@ export function OpNode({ data, selected }: NodeProps<HarnessFlowNode>) {
         )}
       </div>
       <div className="mt-1">
-        <Badge tone={kindTone[data.kind]}>{data.kind}</Badge>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 font-readout text-[10px] uppercase tracking-wide",
+            kindText[data.kind],
+          )}
+        >
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+          {data.kind}
+        </span>
       </div>
 
       <Handle
