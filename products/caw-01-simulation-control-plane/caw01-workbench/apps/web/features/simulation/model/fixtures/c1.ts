@@ -12,12 +12,25 @@ import type { FractalGraph } from "@/features/simulation/model/fractal";
 
 export type HarnessKind = "io" | "router" | "llm" | "tool" | "memory";
 
+/** Where a harness step executes — maps to a Canvas-3 root (server=data center). */
+export type ExecLocation = "server" | "client";
+
 export type HarnessNodeData = {
   label: string;
   kind: HarnessKind;
   /** If set, Ctrl+click descends into this sub-level id (fractal). */
   drillTo?: string;
+  /**
+   * Execution location (overridable per node). Default policy: `llm` → server
+   * (invoked through the C2 serving framework, running in the data center);
+   * everything else → client. See canvas-1-ai-workload-flow.md.
+   */
+  location?: ExecLocation;
 };
+
+/** Default exec location by kind (when not explicitly set on a node). */
+export const defaultLocation = (kind: HarnessKind): ExecLocation =>
+  kind === "llm" ? "server" : "client";
 
 export type HarnessFlowNode = Node<HarnessNodeData, "harness">;
 

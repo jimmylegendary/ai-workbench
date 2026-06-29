@@ -6,7 +6,8 @@
 -- ── enums ────────────────────────────────────────────────────────────────────
 create type run_status as enum ('queued','running','succeeded','failed','cancelled');
 create type boundary   as enum ('public','internal','confidential');
-create type hw_level   as enum ('cluster','rack','tray','package','die','chip','component');
+create type hw_level   as enum ('data_center','client','cluster','rack','tray','package','die','chip','component');
+create type cluster_type as enum ('gpu','cpu','cxl','storage','cxmt','special','custom');
 create type evidence_kind as enum ('run','measurement','artifact');
 
 -- ── helper: ownership-by-project predicate is expressed inline in policies ─────

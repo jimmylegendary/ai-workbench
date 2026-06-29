@@ -1,4 +1,4 @@
-import type { HwLevel } from "@caw/core";
+import type { HwLevel, ClusterType } from "@caw/core";
 
 /**
  * Canvas 3 — Hardware design sample hierarchy (design/05-…/canvas-3-hw-design.md).
@@ -27,6 +27,8 @@ export interface HwTreeNode {
   partId: string;
   name: string;
   level: HwLevel;
+  /** taxonomy for `cluster` nodes — drives the twin glyph accent (not status). */
+  clusterType?: ClusterType;
   spec: HwSpec;
   children?: HwTreeNode[];
 }
@@ -83,10 +85,11 @@ const thinTray = (rack: string, idx: number): HwTreeNode => ({
   children: [computePackage(`${rack}-t${idx}`)],
 });
 
-export const c3Tree: HwTreeNode = {
+const astraCluster: HwTreeNode = {
   partId: "cluster:astra",
-  name: "astra-cluster",
+  name: "gpu-cluster",
   level: "cluster",
+  clusterType: "gpu",
   spec: {
     nodes: "256",
     interconnect: "rail-optimized",
@@ -203,6 +206,105 @@ export const c3Tree: HwTreeNode = {
   ],
 };
 
+/** A second, smaller cluster type — shows a data center composes mixed clusters. */
+const cpuCluster: HwTreeNode = {
+  partId: "cluster:cpu",
+  name: "cpu-cluster",
+  level: "cluster",
+  clusterType: "cpu",
+  spec: { nodes: "64", sockets: "128", interconnect: "IB-NDR" },
+  children: [
+    {
+      partId: "rack:cpu-r0",
+      name: "rack-0",
+      level: "rack",
+      spec: { trays: "2", power_kw: "44" },
+      children: [thinTray("cpu-r0", 0), thinTray("cpu-r0", 1)],
+    },
+  ],
+};
+
+const cxlCluster: HwTreeNode = {
+  partId: "cluster:cxl",
+  name: "cxl-memory-pool",
+  level: "cluster",
+  clusterType: "cxl",
+  spec: { capacity: "48 TiB", devices: "32", protocol: "CXL 3.1" },
+  children: [
+    {
+      partId: "rack:cxl-r0",
+      name: "rack-0",
+      level: "rack",
+      spec: { trays: "1", power_kw: "18" },
+      children: [thinTray("cxl-r0", 0)],
+    },
+  ],
+};
+
+const storageCluster: HwTreeNode = {
+  partId: "cluster:storage",
+  name: "storage-cluster",
+  level: "cluster",
+  clusterType: "storage",
+  spec: { capacity: "12 PB", tier: "NVMe", nodes: "40" },
+  children: [
+    {
+      partId: "rack:stor-r0",
+      name: "rack-0",
+      level: "rack",
+      spec: { trays: "2", power_kw: "22" },
+      children: [thinTray("stor-r0", 0), thinTray("stor-r0", 1)],
+    },
+  ],
+};
+
+/** SERVER entry == the data center (root): a mix of composable clusters. */
+const dataCenter: HwTreeNode = {
+  partId: "server:dc",
+  name: "Server · Data center",
+  level: "data_center",
+  spec: { region: "on-prem", clusters: "4", power_mw: "2.4", pue: "1.18" },
+  children: [astraCluster, cpuCluster, cxlCluster, storageCluster],
+};
+
+/** CLIENT entry == the client device HW (a separate configuration). */
+const clientDevice: HwTreeNode = {
+  partId: "client:dev",
+  name: "Client · device",
+  level: "client",
+  spec: { form: "workstation", soc: "1", ram: "128 GiB" },
+  children: [
+    {
+      partId: "board:client-0",
+      name: "main-board",
+      level: "tray",
+      spec: { sockets: "1", pcie: "gen5 x16" },
+      children: [
+        {
+          partId: "pkg:client-soc",
+          name: "client-soc",
+          level: "package",
+          spec: { cpu_cores: "24", npu_tops: "120", tdp_w: "120" },
+          children: [computeDie("client-soc")],
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * Root chooser: the first C3 view (empty drill) shows two digital-twin objects —
+ * Server (the data center) and Client — and you drill into one. The root node
+ * itself is never rendered as an object; only its children are.
+ */
+export const c3Root: HwTreeNode = {
+  partId: "root",
+  name: "Infra",
+  level: "data_center",
+  spec: {},
+  children: [dataCenter, clientDevice],
+};
+
 /** Flat partId → node lookup, walked once at module load (for PartInspector). */
 export const c3PartsById: Record<string, HwTreeNode> = (() => {
   const index: Record<string, HwTreeNode> = {};
@@ -210,7 +312,7 @@ export const c3PartsById: Record<string, HwTreeNode> = (() => {
     index[node.partId] = node;
     node.children?.forEach(walk);
   };
-  walk(c3Tree);
+  walk(c3Root);
   return index;
 })();
 
@@ -237,8 +339,8 @@ export interface C3Level {
  * its children (the racks) are the rectangles rendered first.
  */
 export function resolveC3Level(drill: readonly string[]): C3Level {
-  let container = c3Tree;
-  const crumbs: C3Crumb[] = [{ partId: c3Tree.partId, label: c3Tree.name }];
+  let container = c3Root;
+  const crumbs: C3Crumb[] = [{ partId: c3Root.partId, label: c3Root.name }];
   for (const partId of drill) {
     const next = container.children?.find((c) => c.partId === partId);
     if (next) {

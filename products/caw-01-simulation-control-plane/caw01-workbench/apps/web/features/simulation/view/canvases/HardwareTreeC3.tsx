@@ -10,6 +10,7 @@ import {
 } from "@/features/simulation/model/fixtures/c3";
 import { CanvasFrame } from "../CanvasFrame";
 import { DrillHint } from "../DrillHint";
+import { LevelTag, TwinObject } from "./TwinObject";
 
 /**
  * Canvas 3 — Hardware design, as a FRACTAL hardware schematic / floorplan.
@@ -26,16 +27,7 @@ import { DrillHint } from "../DrillHint";
  * (success/warning/danger/cyan) are kept for run-state / validity / selection.
  */
 
-/** Neutral (canvas-grey) hierarchy-level tag — taxonomy, not status. */
-function LevelTag({ level }: { level: HwTreeNode["level"] }) {
-  return (
-    <span className="shrink-0 rounded-[var(--radius-sm)] border border-canvas-grid bg-canvas-bg px-1 font-readout text-[10px] uppercase tracking-wide text-canvas-text-muted">
-      {level}
-    </span>
-  );
-}
-
-/** Near-square column count to lay N rectangles out to fill the area. */
+/** Near-square column count to lay N twin objects out to fill the area. */
 const gridCols = (n: number): number => Math.max(1, Math.ceil(Math.sqrt(n)));
 
 export function HardwareTreeC3() {
@@ -95,12 +87,9 @@ export function HardwareTreeC3() {
             }}
           >
             {parts.map((part) => {
-              const children = part.children ?? [];
-              const hasChildren = children.length > 0;
+              const hasChildren = !!part.children && part.children.length > 0;
               const isSelected =
                 selection.canvas === "c3" && selection.partId === part.partId;
-              const specEntries = Object.entries(part.spec).slice(0, 2);
-              const innerCols = gridCols(children.length);
               return (
                 <button
                   key={part.partId}
@@ -112,71 +101,19 @@ export function HardwareTreeC3() {
                       : part.partId
                   }
                   className={cn(
-                    "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-sm)]",
-                    "border bg-canvas-tile p-1.5 text-left transition-colors",
+                    "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-md)]",
+                    "border bg-canvas-tile p-2 text-left shadow-sm transition-all",
+                    "hover:-translate-y-0.5 hover:shadow-md",
                     isSelected
                       ? "border-accent ring-2 ring-accent"
                       : "border-canvas-grid hover:border-canvas-text-muted",
                   )}
                 >
-                  {/* header: level tag + name + drill affordance */}
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <LevelTag level={part.level} />
-                    <span
-                      className={cn(
-                        "font-readout truncate text-xs",
-                        isSelected ? "text-accent" : "text-canvas-text",
-                      )}
-                    >
-                      {part.name}
-                    </span>
-                    {hasChildren && (
-                      <span
-                        aria-hidden
-                        className="ml-auto shrink-0 font-readout text-[10px] text-canvas-text-dim group-hover:text-accent"
-                      >
-                        ↘
-                      </span>
-                    )}
-                  </div>
-
-                  {/* key spec readout */}
-                  <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5">
-                    {specEntries.map(([key, value]) => (
-                      <span
-                        key={key}
-                        className="font-readout truncate text-[10px] text-canvas-text-muted"
-                      >
-                        {key}{" "}
-                        <span className="tabular-nums text-canvas-text">
-                          {value}
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* nested floorplan preview: this part's children as faint rectangles */}
-                  {hasChildren && (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none mt-1.5 grid min-h-0 flex-1 gap-1"
-                      style={{
-                        gridTemplateColumns: `repeat(${innerCols}, minmax(0, 1fr))`,
-                        gridAutoRows: "minmax(0, 1fr)",
-                      }}
-                    >
-                      {children.map((child) => (
-                        <div
-                          key={child.partId}
-                          className="flex min-h-0 min-w-0 items-center justify-center rounded-[2px] border border-canvas-grid bg-canvas-bg px-1"
-                        >
-                          <span className="font-readout truncate text-[9px] leading-none text-canvas-text-dim">
-                            {child.name}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <TwinObject
+                    part={part}
+                    isSelected={isSelected}
+                    hasChildren={hasChildren}
+                  />
                 </button>
               );
             })}

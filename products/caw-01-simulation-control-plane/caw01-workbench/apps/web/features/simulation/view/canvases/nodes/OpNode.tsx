@@ -2,9 +2,10 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/utils";
-import type {
-  HarnessFlowNode,
-  HarnessKind,
+import {
+  defaultLocation,
+  type HarnessFlowNode,
+  type HarnessKind,
 } from "@/features/simulation/model/fixtures/c1";
 
 /**
@@ -33,6 +34,7 @@ const kindBar: Record<HarnessKind, string> = {
  * Rings cyan when selected; a "⤢" affordance marks a drillable node.
  */
 export function OpNode({ data, selected }: NodeProps<HarnessFlowNode>) {
+  const loc = data.location ?? defaultLocation(data.kind);
   return (
     <div
       className={cn(
@@ -65,7 +67,7 @@ export function OpNode({ data, selected }: NodeProps<HarnessFlowNode>) {
           </span>
         )}
       </div>
-      <div className="mt-1">
+      <div className="mt-1 flex items-center justify-between gap-2">
         <span
           className={cn(
             "inline-flex items-center gap-1 font-readout text-[10px] uppercase tracking-wide",
@@ -74,6 +76,13 @@ export function OpNode({ data, selected }: NodeProps<HarnessFlowNode>) {
         >
           <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
           {data.kind}
+        </span>
+        <span
+          title={`runs on ${loc}${loc === "server" ? " (via serving framework)" : ""}`}
+          className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-border px-1 font-readout text-[9px] uppercase text-text-muted"
+        >
+          <span aria-hidden>{loc === "server" ? "▤" : "▢"}</span>
+          {loc}
         </span>
       </div>
 

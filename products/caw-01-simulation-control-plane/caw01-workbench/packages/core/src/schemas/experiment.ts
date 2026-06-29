@@ -9,6 +9,10 @@ export const Boundary = z.enum(["public", "internal", "confidential"]);
 export type Boundary = z.infer<typeof Boundary>;
 
 export const HwLevel = z.enum([
+  // digital-twin roots (ADR-0008 forward / canvas-3-hw-design.md): server entry
+  // == data_center root; client entry == client root.
+  "data_center",
+  "client",
   "cluster",
   "rack",
   "tray",
@@ -17,6 +21,18 @@ export const HwLevel = z.enum([
   "chip",
   "component",
 ]);
+
+/** Cluster taxonomy inside a data center (canvas-3-hw-design.md). */
+export const ClusterType = z.enum([
+  "gpu",
+  "cpu",
+  "cxl",
+  "storage",
+  "cxmt",
+  "special",
+  "custom",
+]);
+export type ClusterType = z.infer<typeof ClusterType>;
 export type HwLevel = z.infer<typeof HwLevel>;
 
 export const Project = z.object({
