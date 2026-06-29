@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import * as yaml from "js-yaml";
 import type { HwLevel, ClusterType } from "@caw/core";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,13 @@ import type {
 } from "@/features/simulation/model/fixtures/c3";
 import { IsoScene } from "@/features/simulation/view/canvases/iso/IsoScene";
 import { useDoubleDrillPick } from "@/features/simulation/view/useDoubleDrillPick";
+import { WorkloadDesign } from "@/features/module-design/workload/WorkloadDesign";
+import { ServingDesign } from "@/features/module-design/serving/ServingDesign";
 import { useModuleDesignStore } from "../store";
+import {
+  moduleRepository,
+  type SavedModule,
+} from "../model/moduleRepository";
 import {
   CHILD_LEVEL,
   DESIGN_LEVELS,
@@ -156,10 +163,12 @@ function asTree(x: unknown, path: string): HwTreeNode {
 
 // ---- mode tabs -------------------------------------------------------------
 
-const MODES: Array<{ key: string; label: string; enabled: boolean }> = [
-  { key: "hw", label: "HW", enabled: true },
-  { key: "workload", label: "Workload", enabled: false },
-  { key: "serving", label: "Serving", enabled: false },
+type Mode = "hw" | "workload" | "serving";
+
+const MODES: Array<{ key: Mode; label: string }> = [
+  { key: "hw", label: "HW" },
+  { key: "workload", label: "Workload" },
+  { key: "serving", label: "Serving" },
 ];
 
 // ---- screen ----------------------------------------------------------------
@@ -174,6 +183,7 @@ export function ModuleDesignScreen() {
   const startDesign = useModuleDesignStore((s) => s.startDesign);
   const setRoot = useModuleDesignStore((s) => s.setRoot);
   const addChild = useModuleDesignStore((s) => s.addChild);
+  const addSubtree = useModuleDesignStore((s) => s.addSubtree);
   const addLink = useModuleDesignStore((s) => s.addLink);
   const removeLink = useModuleDesignStore((s) => s.removeLink);
   const updateNode = useModuleDesignStore((s) => s.updateNode);
@@ -184,6 +194,34 @@ export function ModuleDesignScreen() {
   const reset = useModuleDesignStore((s) => s.reset);
   const focusNode = useModuleDesignStore((s) => s.focusNode);
   const focusPath = useModuleDesignStore((s) => s.focusPath);
+
+  // ---- composer mode: HW (default) vs Workload vs Serving ------------------
+  const [mode, setMode] = useState<Mode>("hw");
+
+  // ---- saved-module library (persisted via moduleRepository) ---------------
+  const [savedModules, setSavedModules] = useState<SavedModule[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const refreshModules = useCallback(() => {
+    moduleRepository.list().then(setSavedModules).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    refreshModules();
+  }, [refreshModules]);
+
+  // transient toast auto-dismiss
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const handleSave = useCallback(async () => {
+    if (!root) return;
+    const mod = await moduleRepository.save(root);
+    setToast(`Saved module “${mod.name}”`);
+    refreshModules();
+  }, [root, refreshModules]);
 
   // The palette + canvas key off the FOCUSED node (drill to compose deeper), not
   // the static top design level — so each level offers its correct child assets.
@@ -239,19 +277,38 @@ export function ModuleDesignScreen() {
     setMenuTarget(null);
   };
 
+  // Drag-to-connect completed: a pointer-drag started on `from` and released on
+  // `to`. Reuse the fabric-kind menu (connectFrom + menuTarget) → addLink.
+  const onDragConnect = useCallback((from: string, to: string) => {
+    setConnectFrom(from);
+    setMenuTarget(to);
+  }, []);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <TopBar
         designLevel={designLevel}
         onPick={startDesign}
         onReset={reset}
         hasRoot={!!root}
+        mode={mode}
+        onMode={setMode}
       />
-      {!root ? (
+
+      {mode === "workload" ? (
+        <WorkloadDesign />
+      ) : mode === "serving" ? (
+        <ServingDesign />
+      ) : !root ? (
         <Chooser onPick={startDesign} />
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)_19rem]">
-          <Palette designLevel={focus?.level ?? designLevel} onAdd={addChild} />
+          <Palette
+            designLevel={focus?.level ?? designLevel}
+            onAdd={addChild}
+            savedModules={savedModules}
+            onAddModule={(m) => addSubtree(m.specTree)}
+          />
           <CanvasPane
             focus={focus}
             crumbs={focusPath()}
@@ -265,6 +322,7 @@ export function ModuleDesignScreen() {
             onChooseKind={chooseKind}
             onCancelConnect={cancelConnect}
             onRemoveLink={removeLink}
+            onDragConnect={onDragConnect}
           />
           <Inspector
             root={root}
@@ -272,7 +330,14 @@ export function ModuleDesignScreen() {
             onUpdate={updateNode}
             onRemove={removeNode}
             onSetRoot={setRoot}
+            onSave={handleSave}
           />
+        </div>
+      )}
+
+      {toast && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-[var(--radius-md)] border border-border bg-text px-3 py-1.5 text-xs font-medium text-background shadow-lg">
+          {toast}
         </div>
       )}
     </div>
@@ -286,11 +351,15 @@ function TopBar({
   onPick,
   onReset,
   hasRoot,
+  mode,
+  onMode,
 }: {
   designLevel: HwLevel | null;
   onPick: (level: HwLevel) => void;
   onReset: () => void;
   hasRoot: boolean;
+  mode: Mode;
+  onMode: (mode: Mode) => void;
 }) {
   return (
     <header className="flex flex-wrap items-center gap-3 border-b border-border bg-surface px-4 py-2">
@@ -302,25 +371,27 @@ function TopBar({
           <button
             key={m.key}
             type="button"
-            disabled={!m.enabled}
-            title={m.enabled ? undefined : "coming soon"}
+            onClick={() => onMode(m.key)}
+            aria-pressed={mode === m.key}
             className={cn(
               "rounded-[var(--radius-sm)] px-2.5 py-1 text-xs font-medium transition-colors",
-              m.enabled
+              mode === m.key
                 ? "bg-text text-background"
-                : "cursor-not-allowed text-text-muted opacity-60",
+                : "text-text-muted hover:bg-surface-muted",
             )}
           >
             {m.label}
-            {!m.enabled && (
-              <span className="ml-1 text-[9px] uppercase tracking-wide">soon</span>
-            )}
           </button>
         ))}
       </div>
 
-      {/* level picker */}
-      <div className="ml-2 flex items-center gap-1.5">
+      {/* level picker (HW mode only) */}
+      <div
+        className={cn(
+          "ml-2 flex items-center gap-1.5",
+          mode !== "hw" && "pointer-events-none opacity-40",
+        )}
+      >
         <span className="text-xs text-text-muted">Design:</span>
         {DESIGN_LEVELS.map((level) => (
           <button
@@ -339,7 +410,7 @@ function TopBar({
         ))}
       </div>
 
-      {hasRoot && (
+      {hasRoot && mode === "hw" && (
         <Button variant="ghost" className="ml-auto" onClick={onReset}>
           New / reset
         </Button>
@@ -395,9 +466,13 @@ function Chooser({ onPick }: { onPick: (level: HwLevel) => void }) {
 function Palette({
   designLevel,
   onAdd,
+  savedModules,
+  onAddModule,
 }: {
   designLevel: HwLevel | null;
   onAdd: (asset: Asset) => void;
+  savedModules: SavedModule[];
+  onAddModule: (module: SavedModule) => void;
 }) {
   const assets = designLevel ? paletteFor(designLevel) : [];
   const child = designLevel ? CHILD_LEVEL[designLevel] : undefined;
@@ -441,6 +516,36 @@ function Palette({
             </button>
           ))
         )}
+
+        {/* saved modules — clicking stamps the saved spec_tree under the focus */}
+        {savedModules.length > 0 && (
+          <div className="pt-2">
+            <h3 className="mb-1.5 border-t border-border pt-2 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+              Saved modules
+            </h3>
+            <div className="space-y-2">
+              {savedModules.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => onAddModule(m)}
+                  title={`Insert “${m.name}” (${m.rootLevel}) as a child of the focused node`}
+                  className="block w-full rounded-[var(--radius-md)] border border-dashed border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{m.name}</span>
+                    <span className="font-readout text-[9px] uppercase text-text-muted">
+                      + insert
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate font-readout text-xs text-text-muted">
+                    {m.rootLevel}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -461,6 +566,7 @@ function CanvasPane({
   onChooseKind,
   onCancelConnect,
   onRemoveLink,
+  onDragConnect,
 }: {
   focus: HwTreeNode | null;
   crumbs: HwTreeNode[];
@@ -474,7 +580,60 @@ function CanvasPane({
   onChooseKind: (kind: InterconnectKind) => void;
   onCancelConnect: () => void;
   onRemoveLink: (index: number) => void;
+  onDragConnect: (from: string, to: string) => void;
 }) {
+  // ---- drag-to-connect (rubber-band) state. A pointer-drag from one part to
+  // another opens the same fabric-kind menu the click "Connect" mode uses. ----
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{
+    from: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null>(null);
+  const dragging = drag !== null;
+
+  const relPoint = useCallback((e: { clientX: number; clientY: number }) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    return rect
+      ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      : { x: 0, y: 0 };
+  }, []);
+
+  // While dragging, track the pointer over the whole window + end on release.
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: globalThis.PointerEvent) => {
+      const p = relPoint(e);
+      setDrag((d) => (d ? { ...d, x2: p.x, y2: p.y } : d));
+    };
+    const up = () => setDrag(null); // part onPointerUp (if any) fires first
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, [dragging, relPoint]);
+
+  // Drag is the PRIMARY connect gesture; it is disabled while the click-based
+  // "Connect" mode is toggled on (so the two never fight). undefined props →
+  // the scenes attach no pointer handlers.
+  const onPartPointerDown = connectMode
+    ? undefined
+    : (id: string, e: ReactPointerEvent<Element>) => {
+        if (e.button !== 0) return;
+        const p = relPoint(e);
+        setDrag({ from: id, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+      };
+  const onPartPointerUp = connectMode
+    ? undefined
+    : (id: string) => {
+        if (drag && id !== drag.from) onDragConnect(drag.from, id);
+        setDrag(null);
+      };
+
   if (!focus) return <div className="bg-canvas-bg" />;
 
   // child partId → display name (for the connect prompt + connections list).
@@ -545,13 +704,34 @@ function CanvasPane({
       )}
 
       {/* live twin canvas — re-renders on every store edit */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div ref={canvasRef} className="relative min-h-0 flex-1 overflow-hidden">
         <IsoScene
           container={focus}
           parts={focus.children ?? []}
           selectedId={selectedId ?? undefined}
           onPick={onPick}
+          onPartPointerDown={onPartPointerDown}
+          onPartPointerUp={onPartPointerUp}
         />
+
+        {/* drag-to-connect rubber-band line (over the canvas, non-interactive) */}
+        {drag && (
+          <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full">
+            <line
+              x1={drag.x1}
+              y1={drag.y1}
+              x2={drag.x2}
+              y2={drag.y2}
+              stroke="var(--accent)"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              strokeLinecap="round"
+            />
+            <circle cx={drag.x1} cy={drag.y1} r={4} fill="var(--accent)" />
+            <circle cx={drag.x2} cy={drag.y2} r={3} fill="var(--accent)" />
+          </svg>
+        )}
+
         {(focus.children?.length ?? 0) === 0 && (
           <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center">
             <span className="font-readout text-xs text-canvas-text-dim">
@@ -630,22 +810,26 @@ function Inspector({
   onUpdate,
   onRemove,
   onSetRoot,
+  onSave,
 }: {
   root: HwTreeNode;
   selectedId: string | null;
   onUpdate: (id: string, patch: Partial<HwTreeNode>) => void;
   onRemove: (id: string) => void;
   onSetRoot: (root: HwTreeNode) => void;
+  onSave: () => Promise<void>;
 }) {
-  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const node = selectedId ? findById(root, selectedId) : undefined;
   const isRoot = node?.partId === root.partId;
 
-  const onSave = () => {
-    // stub: a real save would POST the subtree to the module library.
-    // eslint-disable-next-line no-console
-    console.log("[module-design] save as module (stub):", root);
-    setSaved(true);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const specEntries = node ? Object.entries(node.spec) : [];
@@ -782,12 +966,9 @@ function Inspector({
       {/* save + live YAML mirror */}
       <div className="border-t border-border p-3">
         <div className="flex items-center gap-2">
-          <Button variant="primary" onClick={onSave}>
-            Save as module
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save as module"}
           </Button>
-          {saved && (
-            <span className="font-readout text-xs text-success">saved (stub)</span>
-          )}
         </div>
         <details className="mt-3" open>
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-text-muted">

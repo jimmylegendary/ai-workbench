@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent, PointerEvent, ReactNode } from "react";
 import type {
   CompKind,
   HwLink,
@@ -448,11 +448,15 @@ export function TrayScene({
   parts,
   selectedId,
   onPick,
+  onPartPointerDown,
+  onPartPointerUp,
 }: {
   container: HwTreeNode;
   parts: HwTreeNode[];
   selectedId?: string;
   onPick: (partId: string, drill: boolean) => void;
+  onPartPointerDown?: (partId: string, e: PointerEvent<SVGGElement>) => void;
+  onPartPointerUp?: (partId: string, e: PointerEvent<SVGGElement>) => void;
 }) {
   const { placed, labels, anchors } = layout(parts);
 
@@ -464,6 +468,10 @@ export function TrayScene({
 
   const pick = (part: HwTreeNode) => (e: MouseEvent<SVGGElement>) =>
     onPick(part.partId, e.ctrlKey || e.metaKey);
+  const down = (part: HwTreeNode) =>
+    onPartPointerDown ? (e: PointerEvent<SVGGElement>) => onPartPointerDown(part.partId, e) : undefined;
+  const up = (part: HwTreeNode) =>
+    onPartPointerUp ? (e: PointerEvent<SVGGElement>) => onPartPointerUp(part.partId, e) : undefined;
 
   // Interconnects — resolved against placed packages; skip dangling endpoints.
   const links: HwLink[] = container.links ?? [];
@@ -580,6 +588,8 @@ export function TrayScene({
             className="group/cell"
             style={{ cursor: "pointer" }}
             onClick={pick(part)}
+            onPointerDown={down(part)}
+            onPointerUp={up(part)}
           >
             {/* hit backing */}
             <polygon points={poly(g.silhouette)} fill="transparent" style={{ pointerEvents: "all" }} />
@@ -673,6 +683,8 @@ export function TrayScene({
             key={`lbl-${part.partId}`}
             style={{ cursor: "pointer" }}
             onClick={pick(part)}
+            onPointerDown={down(part)}
+            onPointerUp={up(part)}
           >
             <Readout
               x={x}

@@ -21,26 +21,18 @@ export async function GET(
 
   const stream = new ReadableStream({
     start(controller) {
+      // The Run is synthesized synchronously (runAction) and the VM already set
+      // all axes to "succeeded"; emit a single TERMINAL frame so opening this
+      // stream doesn't visibly "un-finish" the run. (Replace with
+      // `for await (const axes of enginePort.streamStatus(id))` once the engine lands.)
       controller.enqueue(
         frame([
           { axis: "real", status: "succeeded", progress: 1 },
-          { axis: "synthetic", status: "running", progress: 0.4 },
-          { axis: "sim", status: "queued" },
+          { axis: "synthetic", status: "succeeded", progress: 1 },
+          { axis: "sim", status: "succeeded", progress: 1 },
         ]),
       );
-      // TODO: replace with `for await (const axes of enginePort.streamStatus(id))`
-      const t = setTimeout(() => {
-        controller.enqueue(
-          frame([
-            { axis: "real", status: "succeeded", progress: 1 },
-            { axis: "synthetic", status: "succeeded", progress: 1 },
-            { axis: "sim", status: "succeeded", progress: 1 },
-          ]),
-        );
-        controller.close();
-      }, 1500);
-      // best-effort cleanup
-      return () => clearTimeout(t);
+      controller.close();
     },
   });
 

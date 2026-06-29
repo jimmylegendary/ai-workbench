@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent, PointerEvent } from "react";
 import type { HwTreeNode } from "@/features/simulation/model/fixtures/c3";
 
 /**
@@ -375,11 +375,15 @@ export function GpuScene({
   parts,
   selectedId,
   onPick,
+  onPartPointerDown,
+  onPartPointerUp,
 }: {
   container: HwTreeNode;
   parts: HwTreeNode[];
   selectedId?: string;
   onPick: (partId: string, drill: boolean) => void;
+  onPartPointerDown?: (partId: string, e: PointerEvent<SVGGElement>) => void;
+  onPartPointerUp?: (partId: string, e: PointerEvent<SVGGElement>) => void;
 }) {
   // Classify the children onto the canonical hierarchy slots; everything else
   // (io-chip, nvlink, the die at package level, etc.) becomes a satellite chip.
@@ -396,6 +400,10 @@ export function GpuScene({
 
   const pick = (part: HwTreeNode) => (e: MouseEvent<SVGGElement>) =>
     onPick(part.partId, e.ctrlKey || e.metaKey);
+  const down = (part: HwTreeNode | undefined) =>
+    onPartPointerDown && part ? (e: PointerEvent<SVGGElement>) => onPartPointerDown(part.partId, e) : undefined;
+  const up = (part: HwTreeNode | undefined) =>
+    onPartPointerUp && part ? (e: PointerEvent<SVGGElement>) => onPartPointerUp(part.partId, e) : undefined;
   const isSel = (id: string): boolean => id === selectedId;
 
   // ---- SM lattice -----------------------------------------------------------
@@ -504,6 +512,8 @@ export function GpuScene({
       className={hbmInteractive ? "group" : undefined}
       style={hbmInteractive ? { cursor: "pointer" } : undefined}
       onClick={hbmPart ? pick(hbmPart) : undefined}
+      onPointerDown={down(hbmPart)}
+      onPointerUp={up(hbmPart)}
     >
       {stacks.map((s, i) => {
         const f = boxFaces(s.x, s.y, HBM.sw, HBM.sd, Z0, HBM_TOP);
@@ -619,6 +629,8 @@ export function GpuScene({
             className={interactive ? "group" : undefined}
             style={interactive ? { cursor: "pointer" } : undefined}
             onClick={smPart ? pick(smPart) : undefined}
+            onPointerDown={down(smPart)}
+            onPointerUp={up(smPart)}
           >
             {interactive &&
               smOutlines.map((o, i) => (
@@ -665,6 +677,8 @@ export function GpuScene({
             className={interactive ? "group" : undefined}
             style={interactive ? { cursor: "pointer" } : undefined}
             onClick={l2Part ? pick(l2Part) : undefined}
+            onPointerDown={down(l2Part)}
+            onPointerUp={up(l2Part)}
           >
             {interactive && (
               <polygon points={poly(l2Silhouette)} fill="transparent" style={{ pointerEvents: "all" }} />
@@ -761,7 +775,14 @@ export function GpuScene({
         const accent = sel ? "var(--accent)" : accentFor(part);
         const top = pt(x + satW / 2, y + satD, satH);
         return (
-          <g key={part.partId} className="group" style={{ cursor: "pointer" }} onClick={pick(part)}>
+          <g
+            key={part.partId}
+            className="group"
+            style={{ cursor: "pointer" }}
+            onClick={pick(part)}
+            onPointerDown={down(part)}
+            onPointerUp={up(part)}
+          >
             <polygon points={poly(sil)} fill="transparent" style={{ pointerEvents: "all" }} />
             <BoxFaces x={x} y={y} w={satW} d={satD} z0={0} z1={satH} />
             <BoxRidge x={x} y={y} w={satW} d={satD} z1={satH} color={accent} />

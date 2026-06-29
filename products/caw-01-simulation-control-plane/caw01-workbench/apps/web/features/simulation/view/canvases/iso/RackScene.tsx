@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { PointerEvent, ReactElement } from "react";
 import type { HwTreeNode, TrayKind } from "@/features/simulation/model/fixtures/c3";
 
 /**
@@ -39,11 +39,15 @@ export function RackScene({
   parts,
   selectedId,
   onPick,
+  onPartPointerDown,
+  onPartPointerUp,
 }: {
   container: HwTreeNode;
   parts: HwTreeNode[];
   selectedId?: string;
   onPick: (partId: string, drill: boolean) => void;
+  onPartPointerDown?: (partId: string, e: PointerEvent<SVGGElement>) => void;
+  onPartPointerUp?: (partId: string, e: PointerEvent<SVGGElement>) => void;
 }) {
   /* ---- canvas geometry (portrait cabinet + slight iso depth) ------------- */
   const VB_W = 360;
@@ -309,6 +313,8 @@ export function RackScene({
               key={part.partId}
               className="group/slot cursor-pointer"
               onClick={(e) => onPick(part.partId, e.ctrlKey || e.metaKey)}
+              onPointerDown={onPartPointerDown ? (e) => onPartPointerDown(part.partId, e) : undefined}
+              onPointerUp={onPartPointerUp ? (e) => onPartPointerUp(part.partId, e) : undefined}
             >
               <title>
                 {`${part.partId}${part.children?.length ? " — Ctrl/⌘+click to drill in" : ""}`}

@@ -15,6 +15,7 @@ import type {
 
 /** Levels the user can choose to design (top of the editor). */
 export const DESIGN_LEVELS: HwLevel[] = [
+  "data_center",
   "cluster",
   "rack",
   "tray",
@@ -24,6 +25,7 @@ export const DESIGN_LEVELS: HwLevel[] = [
 
 /** What a given design level is composed of (its child level / asset palette). */
 export const CHILD_LEVEL: Partial<Record<HwLevel, HwLevel>> = {
+  data_center: "cluster",
   cluster: "rack",
   rack: "tray",
   tray: "package",
@@ -50,6 +52,44 @@ const A = (
 
 /** Asset palettes, grouped by the level they provide. */
 export const ASSETS: Record<string, Asset[]> = {
+  cluster: [
+    A("cluster-gpu", "GPU cluster", "cluster", {
+      name: "gpu-cluster",
+      clusterType: "gpu",
+      role: "training / inference fabric (NVLink + scale-out)",
+      spec: { rack_unit: "GB200 NVL72 / HGX", fabric: "NVLink5 + IB / Ethernet" },
+    }),
+    A("cluster-cpu", "CPU cluster", "cluster", {
+      name: "cpu-head-zone",
+      clusterType: "cpu",
+      role: "orchestration, login/head nodes, pre/post-processing",
+      spec: { control_plane: "Slurm / Kubernetes" },
+    }),
+    A("cluster-cxl", "CXL memory cluster", "cluster", {
+      name: "cxl-memory-zone",
+      clusterType: "cxl",
+      role: "disaggregated / pooled memory tier",
+      spec: { protocol: "CXL 3.x", use_case: "KV-cache offload, pooling" },
+    }),
+    A("cluster-storage", "Storage cluster", "cluster", {
+      name: "storage-zone",
+      clusterType: "storage",
+      role: "all-flash data lake (GPUDirect Storage)",
+      spec: { media: "all-flash NVMe", protocol: "NVMe-oF + GPUDirect" },
+    }),
+    A("cluster-cxmt", "CXMT / PNM cluster", "cluster", {
+      name: "cxmt-memory-centric-zone",
+      clusterType: "cxmt",
+      role: "experimental processing-near-memory (PIM/PNM)",
+      spec: { tech: "HBM-PIM / CXL-PNM" },
+    }),
+    A("cluster-special", "Special infra cluster", "cluster", {
+      name: "special-infra-zone",
+      clusterType: "special",
+      role: "mgmt, network core/spine, DPU services, observability",
+      spec: { mgmt_fabric: "1/10G OOB to every zone" },
+    }),
+  ],
   rack: [
     A("rack-gb200", "GB200 NVL72 rack", "rack", {
       name: "gb200-rack",

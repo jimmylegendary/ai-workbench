@@ -42,12 +42,13 @@ export function SimulationScreen({ experimentId }: { experimentId: string }) {
     <SplitPane
       left={
         <ControlPanel
-          /* run status + dirty are dev fixtures until RunService/SSE is wired
-             (vm.perAxis/vm.dirty stay empty without the engine); handlers are
-             the real VM intents. */
-          perAxis={runStatus}
+          /* Once a Run has fired, per-axis status comes live from the VM
+             (runSimulation → store/SSE). Before the first run we seed the dev
+             fixture so the panel reads as a realistic mid-run. dirty +
+             projection/evidence stay fixtures until those loops are wired. */
+          perAxis={vm.perAxis.length > 0 ? vm.perAxis : runStatus}
           dirty={dirtyDemo}
-          isRunning={runStatus.some((a) => a.status === "running")}
+          isRunning={vm.isRunning}
           projection={projection}
           evidence={evidence}
           onRun={vm.onRun}

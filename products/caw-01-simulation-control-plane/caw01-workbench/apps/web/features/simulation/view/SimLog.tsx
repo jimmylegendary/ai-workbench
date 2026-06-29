@@ -8,6 +8,7 @@ import {
   type SimLogLevel,
   type SimLogLine,
 } from "@/features/simulation/model/fixtures/simlog";
+import { useLogStore } from "@/features/simulation/model/logStore";
 
 /** Stream cadence. */
 const TICK_MS = 1100;
@@ -62,6 +63,14 @@ export function SimLog() {
   const [lines, setLines] = useState<SimLogLine[]>([]);
   const [running, setRunning] = useState(true);
 
+  // Real emitted output (runSimulation → logStore). When present it takes over
+  // the panel; when empty we fall back to the idle fixture stream below.
+  const realLines = useLogStore((s) => s.lines);
+  const realRunning = useLogStore((s) => s.running);
+  const usingReal = realLines.length > 0;
+  const display = usingReal ? realLines : lines;
+  const indicatorRunning = usingReal ? realRunning : running;
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const cursor = useRef(0); // index into simLogStream
   const nextId = useRef(simLogSeed.length); // monotonic line id
@@ -103,11 +112,11 @@ export function SimLog() {
     return () => clearInterval(id);
   }, []);
 
-  // Stick to the newest line as it streams in.
+  // Stick to the newest line as it streams in (fixture OR real output).
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [lines]);
+  }, [display]);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas-bg text-canvas-text">
@@ -120,11 +129,13 @@ export function SimLog() {
             aria-hidden
             className={cn(
               "inline-block h-1.5 w-1.5 rounded-full",
-              running ? "animate-pulse bg-accent" : "bg-canvas-text-dim",
+              indicatorRunning ? "animate-pulse bg-accent" : "bg-canvas-text-dim",
             )}
           />
-          <span className={running ? "text-accent" : "text-canvas-text-dim"}>
-            {running ? "running" : "idle"}
+          <span
+            className={indicatorRunning ? "text-accent" : "text-canvas-text-dim"}
+          >
+            {indicatorRunning ? "running" : "idle"}
           </span>
         </span>
       </header>
@@ -136,7 +147,7 @@ export function SimLog() {
         aria-label="Simulation log output"
         className="min-h-0 flex-1 overflow-y-auto px-3 py-1.5 font-readout text-[11px] leading-5"
       >
-        {lines.map((line) => (
+        {display.map((line) => (
           <div key={line.id} className="flex gap-2">
             <span className="shrink-0 tabular-nums text-canvas-text-dim">
               {clock(line.t)}

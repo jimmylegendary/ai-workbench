@@ -29,9 +29,29 @@ export interface IsoSceneProps {
   parts: HwTreeNode[];
   selectedId?: string;
   onPick: (partId: string, drill: boolean) => void;
+  /**
+   * OPTIONAL drag-to-connect hooks. When supplied, every part hit region also
+   * fires these on pointer down/up so a caller (the Module Design editor) can
+   * draw a rubber-band connection between two parts. Default `undefined` → no
+   * pointer handlers are attached, so the read-only C3 viewer is UNAFFECTED.
+   */
+  onPartPointerDown?: (partId: string, e: ScenePointerEvent) => void;
+  onPartPointerUp?: (partId: string, e: ScenePointerEvent) => void;
 }
 
-export function IsoScene({ container, parts, selectedId, onPick }: IsoSceneProps) {
+/** Pointer event covering both SVG-group scenes and the HTML fallback cards. */
+export type ScenePointerEvent = import("react").PointerEvent<Element>;
+
+export function IsoScene({
+  container,
+  parts,
+  selectedId,
+  onPick,
+  onPartPointerDown,
+  onPartPointerUp,
+}: IsoSceneProps) {
+  const drag = { onPartPointerDown, onPartPointerUp };
+
   // Root: the Server/Client chooser — two big twin objects (not a room).
   if (container.partId === "root") {
     return (
@@ -40,6 +60,7 @@ export function IsoScene({ container, parts, selectedId, onPick }: IsoSceneProps
         parts={parts}
         selectedId={selectedId}
         onPick={onPick}
+        {...drag}
       />
     );
   }
@@ -48,21 +69,21 @@ export function IsoScene({ container, parts, selectedId, onPick }: IsoSceneProps
     case "data_center":
     case "cluster":
       return (
-        <RoomScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} />
+        <RoomScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} {...drag} />
       );
     case "rack":
       return (
-        <RackScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} />
+        <RackScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} {...drag} />
       );
     case "tray":
       return (
-        <TrayScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} />
+        <TrayScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} {...drag} />
       );
     case "package":
     case "die":
     case "chip":
       return (
-        <GpuScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} />
+        <GpuScene container={container} parts={parts} selectedId={selectedId} onPick={onPick} {...drag} />
       );
     default:
       // leaf-ish levels (component, client device, …) → generic twin row.
@@ -72,6 +93,7 @@ export function IsoScene({ container, parts, selectedId, onPick }: IsoSceneProps
           parts={parts}
           selectedId={selectedId}
           onPick={onPick}
+          {...drag}
         />
       );
   }
@@ -83,7 +105,14 @@ export function IsoScene({ container, parts, selectedId, onPick }: IsoSceneProps
  * card is a clickable hit region: plain click selects, Ctrl/⌘+click drills (when
  * the part has children).
  */
-function IsoFallback({ container, parts, selectedId, onPick }: IsoSceneProps) {
+function IsoFallback({
+  container,
+  parts,
+  selectedId,
+  onPick,
+  onPartPointerDown,
+  onPartPointerUp,
+}: IsoSceneProps) {
   if (parts.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -119,6 +148,8 @@ function IsoFallback({ container, parts, selectedId, onPick }: IsoSceneProps) {
             key={part.partId}
             type="button"
             onClick={(e) => onCardClick(e, part)}
+            onPointerDown={onPartPointerDown ? (e) => onPartPointerDown(part.partId, e) : undefined}
+            onPointerUp={onPartPointerUp ? (e) => onPartPointerUp(part.partId, e) : undefined}
             title={hasChildren ? `${part.partId} — Ctrl/⌘+click to drill in` : part.partId}
             className={cn(
               "group relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[var(--radius-md)]",

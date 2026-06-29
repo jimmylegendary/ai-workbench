@@ -1,3 +1,4 @@
+import type { PointerEvent } from "react";
 import type { HwTreeNode } from "@/features/simulation/model/fixtures/c3";
 
 /**
@@ -599,11 +600,15 @@ export function RoomScene({
   parts,
   selectedId,
   onPick,
+  onPartPointerDown,
+  onPartPointerUp,
 }: {
   container: HwTreeNode;
   parts: HwTreeNode[];
   selectedId?: string;
   onPick: (partId: string, drill: boolean) => void;
+  onPartPointerDown?: (partId: string, e: PointerEvent<SVGGElement>) => void;
+  onPartPointerUp?: (partId: string, e: PointerEvent<SVGGElement>) => void;
 }) {
   const zones = container.level === "data_center";
   const slots = layout(zones, parts);
@@ -890,6 +895,8 @@ export function RoomScene({
             key={part.partId}
             className="group cursor-pointer"
             onClick={(e) => onPick(part.partId, e.ctrlKey || e.metaKey)}
+            onPointerDown={onPartPointerDown ? (e) => onPartPointerDown(part.partId, e) : undefined}
+            onPointerUp={onPartPointerUp ? (e) => onPartPointerUp(part.partId, e) : undefined}
           >
             <title>
               {drillable ? `${part.partId} — Ctrl/⌘+click to drill in` : part.partId}

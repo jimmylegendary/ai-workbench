@@ -8,6 +8,7 @@ import {
   type ReportResult,
 } from "../model/reportAction";
 import type { ResultAxis, ResultMetric, ResultsDataset } from "../model/types";
+import { useResultStore } from "../model/resultStore";
 
 /**
  * Sim Result — client island. Visualises an accumulated results set in THREE
@@ -34,7 +35,21 @@ type Latest = {
 };
 
 export function SimResultScreen({ dataset }: { dataset: ResultsDataset }) {
-  const { runs, metrics, source } = dataset;
+  // Merge in-session runs (from a just-executed simulation) over the server-read
+  // dataset, preferring live — so /sim-result reflects the run you just ran even
+  // when nothing is persisted to Supabase yet.
+  const liveRuns = useResultStore((s) => s.runs);
+  const liveMetrics = useResultStore((s) => s.metrics);
+  const merged = useMemo<ResultsDataset>(() => {
+    if (liveRuns.length === 0) return dataset;
+    const liveIds = new Set(liveRuns.map((r) => r.runId));
+    return {
+      source: dataset.source,
+      runs: [...liveRuns, ...dataset.runs.filter((r) => !liveIds.has(r.runId))],
+      metrics: [...liveMetrics, ...dataset.metrics],
+    };
+  }, [dataset, liveRuns, liveMetrics]);
+  const { runs, metrics, source } = merged;
 
   const metricNames = useMemo(() => {
     const names = Array.from(new Set(metrics.map((m) => m.name)));
@@ -114,7 +129,7 @@ export function SimResultScreen({ dataset }: { dataset: ResultsDataset }) {
           <ProjectionTable latest={latest} metricNames={metricNames} runs={runs} />
         </Panel>
 
-        <ReportPanel dataset={dataset} latest={latest} focusRunId={runId} />
+        <ReportPanel dataset={merged} latest={latest} focusRunId={runId} />
       </div>
     </div>
   );

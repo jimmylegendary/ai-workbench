@@ -1,3 +1,5 @@
+"use client";
+
 import { create } from "zustand";
 import type { HwLevel } from "@caw/core";
 import type {
@@ -76,6 +78,40 @@ function autoLinks(node: HwTreeNode): HwTreeNode {
 /** Recompute auto-links for every tray node in the tree. */
 const withAutoLinks = (root: HwTreeNode): HwTreeNode => mapTree(root, autoLinks);
 
+/**
+ * Re-stamp every partId in a subtree (and remap its links) so a SAVED module
+ * can be inserted as a child without colliding with existing ids. Returns the
+ * cloned subtree plus the advanced seq counter.
+ */
+function reidSubtree(
+  node: HwTreeNode,
+  startSeq: number,
+): { node: HwTreeNode; seq: number } {
+  const idMap: Record<string, string> = {};
+  let seq = startSeq;
+  const clone = (n: HwTreeNode): HwTreeNode => {
+    seq += 1;
+    const partId = `mod-${seq}`;
+    idMap[n.partId] = partId;
+    return {
+      ...n,
+      partId,
+      children: n.children?.map(clone),
+    };
+  };
+  const cloned = clone(node);
+  const remap = (n: HwTreeNode): HwTreeNode => ({
+    ...n,
+    links: n.links?.map((l) => ({
+      ...l,
+      from: idMap[l.from] ?? l.from,
+      to: idMap[l.to] ?? l.to,
+    })),
+    children: n.children?.map(remap),
+  });
+  return { node: remap(cloned), seq };
+}
+
 interface ModuleDesignState {
   designLevel: HwLevel | null;
   root: HwTreeNode | null;
@@ -86,6 +122,7 @@ interface ModuleDesignState {
   startDesign: (level: HwLevel) => void;
   setRoot: (root: HwTreeNode) => void; // replace the whole tree (e.g. YAML edit)
   addChild: (asset: Asset) => void; // appends to the focused node
+  addSubtree: (subtree: HwTreeNode) => void; // stamp a saved module under the focus
   addLink: (fromId: string, toId: string, kind: InterconnectKind) => void;
   removeLink: (index: number) => void; // remove the i-th link of the focused node
   updateNode: (id: string, patch: Partial<HwTreeNode>) => void;
@@ -144,6 +181,21 @@ export const useModuleDesignStore = create<ModuleDesignState>((set, get) => ({
           : n,
       );
       return { root: withAutoLinks(next), seq, selectedId: child.partId };
+    }),
+
+  // Stamp a saved module's spec_tree as a child of the focused node (the "reuse
+  // existing assets to compose a higher level" flow). Re-ids the whole subtree
+  // so partIds stay unique.
+  addSubtree: (subtree) =>
+    set((s) => {
+      if (!s.root || !s.focusId) return s;
+      const { node, seq } = reidSubtree(subtree, s.seq);
+      const next = mapTree(s.root, (n) =>
+        n.partId === s.focusId
+          ? { ...n, children: [...(n.children ?? []), node] }
+          : n,
+      );
+      return { root: withAutoLinks(next), seq, selectedId: node.partId };
     }),
 
   // Append a typed interconnect to the FOCUSED node (its children render the
