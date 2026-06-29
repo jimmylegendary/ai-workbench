@@ -1,42 +1,72 @@
-import type { CompKind, HwTreeNode } from "@/features/simulation/model/fixtures/c3";
+import type { MouseEvent, ReactNode } from "react";
+import type {
+  CompKind,
+  HwLink,
+  HwTreeNode,
+  InterconnectKind,
+} from "@/features/simulation/model/fixtures/c3";
 
 /**
- * TrayScene — a PRESENTATIONAL 2.5D isometric schematic of ONE tray's interior.
+ * TrayScene — a PRESENTATIONAL 2.5D isometric digital twin of ONE tray's board.
  *
- * Reference: an HGX H100 / DGX-style 8-GPU baseboard topology. The container's
- * child parts are placed onto an isometric board by their `comp` kind:
+ * Reference: an HGX H100 / DGX-style 8-GPU baseboard (and the GB200 compute
+ * tray, the CXL/storage memory boxes, head nodes, network trays). The board is
+ * drawn as a real PCB slab — silkscreen keep-out, mounting holes, a copper bus
+ * spine — and the container's child parts are placed as component PACKAGES by
+ * their `comp` kind:
  *
- *     CPU(s) ──────────── back edge (host sockets)
- *     GPU bank A ───────┐
- *     NVSwitch row ─────┤  the all-to-all NVLink crossbar between the two banks
- *     GPU bank B ───────┘
- *     NIC / memory ───── front module row (ConnectX-7, or DIMM/flash for mem trays)
- *     DPU ────────────── BlueField offload
- *     OSFP cages ─────── front edge optical ports
+ *     CPU sockets ───────── back edge (host, finned heatsinks)
+ *     GPU bank A ─────────┐
+ *     NVSwitch spine ─────┤  the on-baseboard all-to-all NVLink crossbar
+ *     GPU bank B ─────────┘
+ *     DPU / NIC row ─────── front modules (BlueField, ConnectX)
+ *     OSFP cages ────────── front-edge optical ports
+ *     DIMM / flash field ── memory & storage trays
  *
- * Thin PCB traces are drawn on the board surface for the NVLink fabric (GPU↔
- * NVSwitch), PCIe (CPU↔GPU) and NIC↔OSFP rails; the cuboids sit on top so the
- * traces appear to route beneath the blocks. Each part is a clickable hit region
- * — every cuboid AND its label carry onPick(partId, drill). Plain click selects;
- * Ctrl/⌘+click requests a drill. No hooks / no state — pure render.
+ * (2) INTERCONNECTS. `container.links` (HwLink[]) is rendered as typed EDGES
+ * between the two referenced child regions — resolved by `partId` against the
+ * placed packages. Style by kind: nvlink/c2c = solid primary (thick), pcie =
+ * thin neutral, osfp = dashed accent-cyan, ib/ethernet = dotted neutral; a small
+ * mono label sits at the midpoint. A link whose endpoint is not placed is
+ * skipped. The whole layout is recomputed from `parts` every render, so edges
+ * follow the packages if the tray's children change.
  *
- * Faces use fixed metal greys (the canvas is always dark); the categorical
- * `--cat-*` palette only tints the top ridge per kind, and `--accent` is reserved
- * for the selected part. Status hues are never used here.
+ * Each placed package is a clickable hit region: plain click selects, Ctrl/⌘+
+ * click requests a drill (onPick(partId, ctrl|meta)). Selected → cyan accent
+ * outline + glow; hover → neutral white wash. Faces use fixed metal greys (the
+ * canvas is always dark); the categorical `--cat-*` palette only tints the top
+ * ridge per kind. `--accent` (cyan) is the selection colour and the OSFP edge
+ * colour; `--primary` (blue) is the NVLink/C2C edge colour — both are the
+ * reserved "edge" hues, never taxonomy. Status hues are never used here.
+ *
+ * Pure / presentational: no hooks, no state.
  */
 
 /* ----------------------------------------------------------------------- *
- * Isometric projection (2:1). A board cell (bx, by) → screen (x, y).
+ * Isometric projection (2:1). Floor (x,y) at height z (px) → screen (x,y).
+ * x → screen-right, y → screen-depth (front), z → up.
  * ----------------------------------------------------------------------- */
-const TW = 42; // half tile width (px)
-const TH = 21; // half tile height (px)
-const OX = 372; // screen origin x for board cell (0,0)
-const OY = 92; // screen origin y for board cell (0,0)
+const U = 6.6; //  half-tile width
+const V = 3.3; //  half-tile height
+const OX = 372; // screen origin x for floor (0,0)
+const OY = 92; //  screen origin y for floor (0,0)
+const BW = 50; //  board width  (floor units)
+const BD = 48; //  board depth  (floor units)
+const BT = 5; //   board thickness (px)
 
-type Pt = [number, number];
-const iso = (bx: number, by: number): Pt => [OX + (bx - by) * TW, OY + (bx + by) * TH];
+type P = readonly [number, number];
+
+const pt = (x: number, y: number, z = 0): P => [OX + (x - y) * U, OY + (x + y) * V - z];
 const r = (n: number): number => Math.round(n * 100) / 100;
-const poly = (pts: Pt[]): string => pts.map(([x, y]) => `${r(x)},${r(y)}`).join(" ");
+const poly = (pts: readonly P[]): string => pts.map((p) => `${r(p[0])},${r(p[1])}`).join(" ");
+const lerp = (a: P, b: P, t: number): P => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+
+/* ----------------------------------------------------------------------- *
+ * Metal greys (fixed — the canvas is always dark).
+ * ----------------------------------------------------------------------- */
+const STROKE = "#11161d";
+const DETAIL = "#0c1117";
+const PORT = "#0a0e13";
 
 /* ----------------------------------------------------------------------- *
  * Bands — each comp kind drops into a depth band on the board.
@@ -75,67 +105,71 @@ const bandOf = (comp?: CompKind): Band => {
   }
 };
 
-/** Per-band cuboid footprint (cell units) + height (px). */
-const FOOT: Record<Band, { fw: number; fd: number; h: number }> = {
-  cpu: { fw: 0.96, fd: 0.74, h: 28 },
-  gpu: { fw: 0.8, fd: 0.8, h: 42 },
-  nvswitch: { fw: 0.8, fd: 0.44, h: 16 },
-  nic: { fw: 0.34, fd: 0.5, h: 22 },
-  memory: { fw: 0.2, fd: 0.62, h: 26 },
-  dpu: { fw: 0.66, fd: 0.42, h: 18 },
-  osfp: { fw: 0.5, fd: 0.28, h: 12 },
-  generic: { fw: 0.76, fd: 0.76, h: 26 },
+/** Per-band package footprint (floor units) + height (px). */
+interface Foot {
+  w: number;
+  d: number;
+  h: number;
+}
+const FOOT: Record<Band, Foot> = {
+  cpu: { w: 9, d: 8, h: 8 },
+  gpu: { w: 8.5, d: 7, h: 22 },
+  nvswitch: { w: 8, d: 4.5, h: 9 },
+  nic: { w: 3.6, d: 3.6, h: 6 },
+  memory: { w: 1.6, d: 6.5, h: 14 },
+  dpu: { w: 7.5, d: 4.5, h: 7 },
+  osfp: { w: 8, d: 2.6, h: 8 },
+  generic: { w: 6.5, d: 6.5, h: 11 },
 };
 
-/** Ordered slot centers per band — parts fill them left→right / bankA→bankB. */
-const SLOTS: Record<Band, Pt[]> = {
+/** Ordered slot centres per band — parts fill them left→right / bankA→bankB. */
+const row = (n: number, x0: number, x1: number, y: number): P[] =>
+  Array.from({ length: n }, (_, i): P => [x0 + ((x1 - x0) * i) / (n - 1), y]);
+
+const SLOTS: Record<Band, P[]> = {
   cpu: [
-    [1.7, 0.35],
-    [3.3, 0.35],
-    [2.5, 0.35],
-    [0.9, 0.35],
-    [4.1, 0.35],
+    [14, 4],
+    [36, 4],
+    [25, 4],
   ],
   gpu: [
-    [1, 1.55],
-    [2, 1.55],
-    [3, 1.55],
-    [4, 1.55],
-    [1, 3.55],
-    [2, 3.55],
-    [3, 3.55],
-    [4, 3.55],
+    [6, 13],
+    [17, 13],
+    [28, 13],
+    [39, 13],
+    [6, 30],
+    [17, 30],
+    [28, 30],
+    [39, 30],
   ],
   nvswitch: [
-    [1, 2.55],
-    [2, 2.55],
-    [3, 2.55],
-    [4, 2.55],
-    [1.5, 2.2],
-    [2.5, 2.2],
-    [3.5, 2.2],
-    [4.5, 2.2],
+    [6, 21.5],
+    [17, 21.5],
+    [28, 21.5],
+    [39, 21.5],
   ],
-  nic: Array.from({ length: 8 }, (_, i): Pt => [0.8 + (i * 3.8) / 7, 4.85]),
-  memory: Array.from({ length: 16 }, (_, i): Pt => [0.7 + (i * 3.6) / 15, 4.45]),
+  nic: row(8, 5, 45, 41),
+  memory: [...row(12, 5, 45, 15), ...row(12, 5, 45, 27)],
   dpu: [
-    [1.7, 5.45],
-    [3.3, 5.45],
-    [2.5, 5.45],
-    [0.9, 5.45],
+    [14, 36],
+    [36, 36],
   ],
-  osfp: Array.from({ length: 8 }, (_, i): Pt => [0.8 + (i * 3.8) / 7, 6.05]),
+  osfp: [
+    [8, 45],
+    [21, 45],
+    [34, 45],
+    [45, 45],
+  ],
   generic: [
-    [4.7, 0.7],
-    [4.7, 1.7],
-    [4.7, 2.7],
-    [4.7, 3.7],
-    [4.7, 4.7],
-    [4.7, 5.6],
+    [46, 6],
+    [46, 14],
+    [46, 22],
+    [46, 30],
+    [46, 38],
   ],
 };
 
-/** Categorical accent per comp kind (off the reserved status hues). */
+/** Categorical accent per comp kind (off the reserved status / edge hues). */
 const COMP_ACCENT: Record<string, string> = {
   gpu: "var(--cat-tool)",
   cpu: "var(--cat-router)",
@@ -150,54 +184,158 @@ const COMP_ACCENT: Record<string, string> = {
 };
 
 /* ----------------------------------------------------------------------- *
- * Cuboid geometry.
+ * Cuboid geometry (centre-based cell).
  * ----------------------------------------------------------------------- */
 interface Cell {
-  bx: number;
-  by: number;
-  fw: number;
-  fd: number;
+  cx: number;
+  cy: number;
+  w: number;
+  d: number;
   h: number;
 }
 
-interface Faces {
-  top: string;
-  left: string;
-  right: string;
-  ground: string;
-  ridge: string;
+interface Geom {
+  top: P[];
+  left: P[];
+  right: P[];
+  silhouette: P[];
+  /** named corners (t = top z=h, b = base z=0). */
+  At: P;
+  Bt: P;
+  Ct: P;
+  Dt: P;
 }
 
-function faces(c: Cell): Faces {
-  const x0 = c.bx - c.fw / 2;
-  const x1 = c.bx + c.fw / 2;
-  const y0 = c.by - c.fd / 2;
-  const y1 = c.by + c.fd / 2;
-  const A = iso(x0, y0);
-  const B = iso(x1, y0);
-  const C = iso(x1, y1);
-  const D = iso(x0, y1);
-  const up = ([x, y]: Pt): Pt => [x, y - c.h];
-  const At = up(A);
-  const Bt = up(B);
-  const Ct = up(C);
-  const Dt = up(D);
+function geom(c: Cell): Geom {
+  const x0 = c.cx - c.w / 2;
+  const x1 = c.cx + c.w / 2;
+  const y0 = c.cy - c.d / 2;
+  const y1 = c.cy + c.d / 2;
+  const At = pt(x0, y0, c.h); // back-left  top
+  const Bt = pt(x1, y0, c.h); // back-right top
+  const Ct = pt(x1, y1, c.h); // front-right top
+  const Dt = pt(x0, y1, c.h); // front-left top
+  const Bb = pt(x1, y0, 0);
+  const Cb = pt(x1, y1, 0);
+  const Db = pt(x0, y1, 0);
   return {
-    top: poly([At, Bt, Ct, Dt]),
-    left: poly([Dt, Ct, C, D]),
-    right: poly([Bt, Ct, C, B]),
-    ground: poly([A, B, C, D]),
-    ridge: poly([Dt, Ct, Bt]),
+    top: [At, Bt, Ct, Dt],
+    left: [Bt, Ct, Cb, Bb], //   x+w face (right-facing)
+    right: [Dt, Ct, Cb, Db], //  y+d face (front-left facing)
+    silhouette: [At, Bt, Bb, Cb, Db, Dt],
+    At,
+    Bt,
+    Ct,
+    Dt,
   };
 }
 
 /* ----------------------------------------------------------------------- *
- * Layout — allocate slots to parts and collect cuboids, labels, link nodes.
+ * Package surface detailing (heatsink fins / port cages).
+ * ----------------------------------------------------------------------- */
+function topFins(g: Geom, n: number): ReactNode[] {
+  const out: ReactNode[] = [];
+  for (let k = 1; k <= n; k++) {
+    const t = k / (n + 1);
+    const a = lerp(g.At, g.Dt, t);
+    const b = lerp(g.Bt, g.Ct, t);
+    out.push(
+      <line key={`fin-${k}`} x1={r(a[0])} y1={r(a[1])} x2={r(b[0])} y2={r(b[1])} stroke={DETAIL} strokeWidth={0.7} />,
+    );
+  }
+  return out;
+}
+
+/** Dark port openings on the front (y+d) face — OSFP cages, NIC connectors. */
+function frontPorts(g: Geom, n: number): ReactNode[] {
+  const [TL, TR, BR, BL] = g.right as [P, P, P, P];
+  const bil = (u: number, v: number): P => lerp(lerp(TL, TR, u), lerp(BL, BR, u), v);
+  const out: ReactNode[] = [];
+  for (let k = 0; k < n; k++) {
+    const u0 = (k + 0.18) / n;
+    const u1 = (k + 0.82) / n;
+    const quad = [bil(u0, 0.18), bil(u1, 0.18), bil(u1, 0.64), bil(u0, 0.64)];
+    out.push(
+      <polygon key={`port-${k}`} points={poly(quad)} fill={PORT} stroke="#05080c" strokeWidth={0.5} />,
+    );
+  }
+  return out;
+}
+
+function partDetail(comp: CompKind | undefined, g: Geom): ReactNode {
+  switch (comp) {
+    case "gpu":
+      return <>{topFins(g, 8)}</>;
+    case "cpu":
+      return <>{topFins(g, 6)}</>;
+    case "nvswitch":
+      return <>{topFins(g, 3)}</>;
+    case "osfp":
+      return <>{frontPorts(g, 2)}</>;
+    case "nic":
+    case "dpu":
+      return <>{frontPorts(g, 1)}</>;
+    case "hbm":
+    case "cache":
+    case "l2":
+    case "register-file":
+      return (
+        <>
+          {frontPorts(g, 1)}
+          {topFins(g, 1)}
+        </>
+      );
+    default:
+      return null;
+  }
+}
+
+/* ----------------------------------------------------------------------- *
+ * Interconnect edge styling (by kind). primary/accent are the reserved
+ * EDGE hues — never taxonomy.
+ * ----------------------------------------------------------------------- */
+interface EdgeStyle {
+  stroke: string;
+  width: number;
+  dash?: string;
+  cap: "round" | "butt";
+}
+// Interconnect hues mirror GpuScene's LINK_COLOR (categorical, OFF the status
+// hues); --accent stays reserved for selection only.
+function edgeStyle(kind: InterconnectKind): EdgeStyle {
+  switch (kind) {
+    case "nvlink":
+      return { stroke: "var(--cat-llm)", width: 2.6, cap: "round" };
+    case "c2c":
+      return { stroke: "var(--cat-router)", width: 2.2, cap: "round" };
+    case "osfp":
+      return { stroke: "var(--cat-io)", width: 1.8, dash: "5 4", cap: "round" };
+    case "ib":
+    case "ethernet":
+      return { stroke: "var(--cat-io)", width: 1.5, dash: "0.5 4", cap: "round" };
+    case "cxl":
+      return { stroke: "var(--cat-memory)", width: 1.6, dash: "4 3", cap: "round" };
+    case "pcie":
+    default:
+      return { stroke: "var(--cat-router)", width: 1.3, cap: "butt" };
+  }
+}
+const KIND_LABEL: Record<InterconnectKind, string> = {
+  nvlink: "NVLink",
+  c2c: "NVLink-C2C",
+  pcie: "PCIe",
+  cxl: "CXL",
+  osfp: "OSFP",
+  ib: "InfiniBand",
+  ethernet: "Ethernet",
+};
+
+/* ----------------------------------------------------------------------- *
+ * Layout — allocate slots to parts; collect cuboids, labels, link anchors.
  * ----------------------------------------------------------------------- */
 interface Placed {
   part: HwTreeNode;
   cell: Cell;
-  band: Band;
 }
 interface Label {
   part: HwTreeNode;
@@ -208,7 +346,7 @@ interface Label {
 function layout(parts: HwTreeNode[]): {
   placed: Placed[];
   labels: Label[];
-  byBand: Record<Band, Cell[]>;
+  anchors: Record<string, P>;
 } {
   const cursor: Record<Band, number> = {
     cpu: 0,
@@ -222,25 +360,14 @@ function layout(parts: HwTreeNode[]): {
   };
   const placed: Placed[] = [];
   const labels: Label[] = [];
-  const byBand: Record<Band, Cell[]> = {
-    cpu: [],
-    gpu: [],
-    nvswitch: [],
-    nic: [],
-    memory: [],
-    dpu: [],
-    osfp: [],
-    generic: [],
-  };
+  const anchors: Record<string, P> = {};
 
-  const take = (band: Band, foot: { fw: number; fd: number; h: number }): Cell | null => {
+  const take = (band: Band, foot: Foot): Cell | null => {
     const idx = cursor[band];
     if (idx >= SLOTS[band].length) return null;
     cursor[band] = idx + 1;
-    const [bx, by] = SLOTS[band][idx];
-    const cell: Cell = { bx, by, ...foot };
-    byBand[band].push(cell);
-    return cell;
+    const [cx, cy] = SLOTS[band][idx];
+    return { cx, cy, ...foot };
   };
 
   for (const part of parts) {
@@ -251,24 +378,66 @@ function layout(parts: HwTreeNode[]): {
       const cell = take(band, FOOT[band]);
       if (!cell) break;
       made.push(cell);
-      placed.push({ part, cell, band });
+      placed.push({ part, cell });
     }
     // band exhausted before placing anything → spill one block into generic.
     if (made.length === 0) {
       const cell = take("generic", FOOT.generic);
       if (cell) {
         made.push(cell);
-        placed.push({ part, cell, band: "generic" });
+        placed.push({ part, cell });
       }
     }
     if (made.length > 0) {
       const f = made[0];
-      const [cx, cy] = iso(f.bx, f.by);
-      labels.push({ part, x: cx, y: cy - f.h - 7 });
+      const top = pt(f.cx, f.cy, f.h);
+      anchors[part.partId] = top;
+      labels.push({ part, x: top[0], y: top[1] - 8 });
     }
   }
 
-  return { placed, labels, byBand };
+  return { placed, labels, anchors };
+}
+
+/* ----------------------------------------------------------------------- *
+ * Small atoms.
+ * ----------------------------------------------------------------------- */
+function Readout({
+  x,
+  y,
+  text,
+  color = "var(--canvas-text)",
+  anchor = "middle",
+  size = 9,
+  bold = false,
+}: {
+  x: number;
+  y: number;
+  text: string;
+  color?: string;
+  anchor?: "start" | "middle" | "end";
+  size?: number;
+  bold?: boolean;
+}) {
+  return (
+    <text
+      x={r(x)}
+      y={r(y)}
+      textAnchor={anchor}
+      className="font-readout"
+      style={{
+        fill: color,
+        stroke: "#0b0f14",
+        strokeWidth: 3,
+        paintOrder: "stroke",
+        fontSize: size,
+        fontWeight: bold ? 600 : 400,
+        letterSpacing: 0.2,
+      }}
+    >
+      {text}
+    </text>
+  );
 }
 
 /* ----------------------------------------------------------------------- *
@@ -285,116 +454,122 @@ export function TrayScene({
   selectedId?: string;
   onPick: (partId: string, drill: boolean) => void;
 }) {
-  const { placed, labels, byBand } = layout(parts);
+  const { placed, labels, anchors } = layout(parts);
 
   // Back-to-front paint order for correct 2.5D occlusion.
   const order = [...placed].sort(
-    (a, b) => a.cell.bx + a.cell.by - (b.cell.bx + b.cell.by) || a.cell.bx - b.cell.bx,
+    (a, b) =>
+      a.cell.cx + a.cell.cy - (b.cell.cx + b.cell.cy) || a.cell.cx - b.cell.cx,
   );
 
-  // Board slab (fixed HGX-sized baseboard).
-  const B = { x0: 0.25, y0: -0.12, x1: 5.15, y1: 6.5, h: 10 };
-  const bl = iso(B.x0, B.y1);
-  const fr = iso(B.x1, B.y1);
-  const br = iso(B.x1, B.y0);
-  const boardTop = poly([
-    iso(B.x0, B.y0),
-    br,
-    fr,
-    bl,
-  ]);
-  const boardFront = poly([bl, fr, [fr[0], fr[1] + B.h], [bl[0], bl[1] + B.h]]);
-  const boardSide = poly([fr, br, [br[0], br[1] + B.h], [fr[0], fr[1] + B.h]]);
+  const pick = (part: HwTreeNode) => (e: MouseEvent<SVGGElement>) =>
+    onPick(part.partId, e.ctrlKey || e.metaKey);
 
-  // PCB traces (board surface, beneath the blocks).
-  const c = (cell: Cell): Pt => iso(cell.bx, cell.by);
-  const gpuA = byBand.gpu.filter((g) => g.by < 2.5);
-  const links: { key: string; a: Pt; b: Pt; stroke: string; opacity: number; dash?: string }[] =
-    [];
-  // NVLink fabric: each GPU to the NVSwitches roughly above/below it.
-  byBand.gpu.forEach((g, gi) =>
-    byBand.nvswitch.forEach((s, si) => {
-      if (Math.abs(g.bx - s.bx) <= 1.1)
-        links.push({ key: `nv-${gi}-${si}`, a: c(g), b: c(s), stroke: "var(--cat-llm)", opacity: 0.22 });
-    }),
-  );
-  // PCIe: each CPU to the near GPU bank.
-  byBand.cpu.forEach((cpu, ci) =>
-    gpuA.forEach((g, gi) =>
-      links.push({
-        key: `pci-${ci}-${gi}`,
-        a: c(cpu),
-        b: c(g),
-        stroke: "var(--cat-router)",
-        opacity: 0.18,
-        dash: "3 3",
-      }),
-    ),
-  );
-  // Rail: each NIC to its nearest OSFP cage.
-  byBand.nic.forEach((n, ni) => {
-    let best: Cell | null = null;
-    let bestD = Infinity;
-    byBand.osfp.forEach((o) => {
-      const d = Math.abs(o.bx - n.bx);
-      if (d < bestD) {
-        bestD = d;
-        best = o;
-      }
-    });
-    if (best) links.push({ key: `rail-${ni}`, a: c(n), b: c(best), stroke: "var(--cat-io)", opacity: 0.24 });
-  });
+  // Interconnects — resolved against placed packages; skip dangling endpoints.
+  const links: HwLink[] = container.links ?? [];
+  const drawn = links.filter((l) => anchors[l.from] && anchors[l.to]);
+  const kinds = Array.from(new Set(drawn.map((l) => l.kind)));
+
+  // Board slab geometry (z from -BT..0).
+  const bAt = pt(0, 0, 0);
+  const bBt = pt(BW, 0, 0);
+  const bCt = pt(BW, BD, 0);
+  const bDt = pt(0, BD, 0);
+  const bBb = pt(BW, 0, -BT);
+  const bCb = pt(BW, BD, -BT);
+  const bDb = pt(0, BD, -BT);
+  const boardTop = poly([bAt, bBt, bCt, bDt]);
+  const boardRight = poly([bDt, bCt, bCb, bDb]);
+  const boardLeft = poly([bBt, bCt, bCb, bBb]);
+  const silkscreen = poly([pt(1.5, 1.5, 0), pt(BW - 1.5, 1.5, 0), pt(BW - 1.5, BD - 1.5, 0), pt(1.5, BD - 1.5, 0)]);
+  const holes: P[] = [pt(2.6, 2.6, 0), pt(BW - 2.6, 2.6, 0), pt(2.6, BD - 2.6, 0), pt(BW - 2.6, BD - 2.6, 0)];
+  // copper bus spine along the NVSwitch row.
+  const spineA = pt(2.5, 21.5, 0);
+  const spineB = pt(BW - 2.5, 21.5, 0);
+
+  const floorC = pt(BW / 2, BD / 2, 0);
 
   return (
     <svg
-      viewBox="86 74 532 288"
-      className="h-full w-full"
-      preserveAspectRatio="xMidYMid meet"
+      viewBox="0 0 760 478"
       width="100%"
       height="100%"
+      preserveAspectRatio="xMidYMid meet"
+      className="block h-full w-full"
+      role="img"
+      aria-label={`Tray board topology for ${container.name}`}
     >
+      <defs>
+        <filter id="tray-glow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="2.6" result="b" />
+          <feMerge>
+            <feMergeNode in="b" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <linearGradient id="tg-top" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3a4653" />
+          <stop offset="100%" stopColor="#2b343f" />
+        </linearGradient>
+        <linearGradient id="tg-left" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#27313c" />
+          <stop offset="100%" stopColor="#1b232c" />
+        </linearGradient>
+        <linearGradient id="tg-right" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1d2530" />
+          <stop offset="100%" stopColor="#131922" />
+        </linearGradient>
+        <linearGradient id="tg-board" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#171e27" />
+          <stop offset="100%" stopColor="#0e141b" />
+        </linearGradient>
+        <radialGradient id="tray-floor" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#000000" stopOpacity="0.42" />
+          <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      <rect x={0} y={0} width={760} height={478} style={{ fill: "var(--canvas-bg)" }} />
+
+      {/* soft ground shadow under the board */}
+      <ellipse cx={r(floorC[0])} cy={r(floorC[1] + 24)} rx={330} ry={96} fill="url(#tray-floor)" />
+
       {/* board slab */}
-      <polygon points={boardSide} fill="#10161d" stroke="#0b0f14" strokeWidth={1} />
-      <polygon points={boardFront} fill="#141b23" stroke="#0b0f14" strokeWidth={1} />
-      <polygon points={boardTop} fill="#181f28" stroke="#0b0f14" strokeWidth={1} />
+      <polygon points={boardLeft} fill="#0a0e13" stroke="#05080c" strokeWidth={1} />
+      <polygon points={boardRight} fill="#0c1117" stroke="#05080c" strokeWidth={1} />
+      <polygon points={boardTop} fill="url(#tg-board)" stroke="#05080c" strokeWidth={1} />
+
+      {/* PCB detailing: silkscreen keep-out, copper bus spine, mounting holes */}
+      <polygon points={silkscreen} fill="none" stroke="#2a3340" strokeWidth={0.8} opacity={0.55} />
+      <line
+        x1={r(spineA[0])}
+        y1={r(spineA[1])}
+        x2={r(spineB[0])}
+        y2={r(spineB[1])}
+        stroke="#2a3340"
+        strokeWidth={1.4}
+        opacity={0.4}
+      />
+      {holes.map((h, i) => (
+        <g key={`hole-${i}`}>
+          <circle cx={r(h[0])} cy={r(h[1])} r={2.6} fill="#070a0e" stroke="#2a3340" strokeWidth={0.9} />
+        </g>
+      ))}
 
       {/* title */}
-      <text
-        x={96}
-        y={88}
-        className="font-readout"
-        fontSize={11}
-        fill="var(--canvas-text-muted)"
-        style={{ paintOrder: "stroke" }}
-        stroke="#0e1116"
-        strokeWidth={3}
-      >
-        {container.name}
-      </text>
-      <text x={96} y={101} className="font-readout" fontSize={8} fill="var(--canvas-text-dim)">
-        {container.level} · tray topology
-      </text>
+      <Readout x={18} y={26} text={container.name} color="var(--canvas-text-muted)" anchor="start" size={12} bold />
+      <Readout
+        x={18}
+        y={40}
+        text={`${container.level} · ${container.trayKind ?? "tray"} topology`}
+        color="var(--canvas-text-dim)"
+        anchor="start"
+        size={9}
+      />
 
-      {/* PCB traces (under blocks) */}
-      <g>
-        {links.map((l) => (
-          <line
-            key={l.key}
-            x1={r(l.a[0])}
-            y1={r(l.a[1])}
-            x2={r(l.b[0])}
-            y2={r(l.b[1])}
-            stroke={l.stroke}
-            strokeWidth={0.9}
-            strokeDasharray={l.dash}
-            opacity={l.opacity}
-          />
-        ))}
-      </g>
-
-      {/* cuboids, back-to-front */}
+      {/* component packages, back-to-front */}
       {order.map(({ part, cell }, i) => {
-        const f = faces(cell);
+        const g = geom(cell);
         const selected = part.partId === selectedId;
         const accent = selected
           ? "var(--accent)"
@@ -402,67 +577,140 @@ export function TrayScene({
         return (
           <g
             key={`${part.partId}-${i}`}
-            className="group/c cursor-pointer"
-            onClick={(e) => onPick(part.partId, e.ctrlKey || e.metaKey)}
+            className="group/cell"
+            style={{ cursor: "pointer" }}
+            onClick={pick(part)}
           >
-            {selected && (
-              <polygon points={f.ground} fill="none" stroke="var(--accent)" strokeWidth={1.4} opacity={0.55} />
-            )}
-            <polygon points={f.right} fill="#19212b" stroke="#11161d" strokeWidth={0.75} />
-            <polygon points={f.left} fill="#232d38" stroke="#11161d" strokeWidth={0.75} />
-            <polygon points={f.top} fill="#313c49" stroke="#11161d" strokeWidth={0.75} />
-            {/* categorical / selection ridge along the front-top edges */}
+            {/* hit backing */}
+            <polygon points={poly(g.silhouette)} fill="transparent" style={{ pointerEvents: "all" }} />
+            {/* metal faces (back-to-front) */}
+            <polygon points={poly(g.right)} fill="url(#tg-right)" stroke={STROKE} strokeWidth={0.7} />
+            <polygon points={poly(g.left)} fill="url(#tg-left)" stroke={STROKE} strokeWidth={0.7} />
+            <polygon points={poly(g.top)} fill="url(#tg-top)" stroke={STROKE} strokeWidth={0.7} />
+            {/* fins / port cages */}
+            {partDetail(part.comp, g)}
+            {/* categorical / selection ridge along the two back-top edges */}
             <polyline
-              points={f.ridge}
+              points={poly([g.Dt, g.At, g.Bt])}
               fill="none"
-              stroke={accent}
-              strokeWidth={selected ? 2 : 1.4}
+              style={{ stroke: accent }}
+              strokeWidth={selected ? 2 : 1.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
               opacity={0.95}
             />
-            {/* selection glow */}
-            {selected && (
-              <>
-                <polygon points={f.top} fill="none" stroke="var(--accent)" strokeWidth={3.5} opacity={0.3} />
-                <polygon points={f.top} fill="none" stroke="var(--accent)" strokeWidth={1.6} />
-              </>
-            )}
-            {/* hover wash on the top face */}
+            {/* hover wash (neutral white) */}
             <polygon
-              points={f.top}
-              className="fill-[var(--canvas-text)] opacity-0 transition-opacity group-hover/c:opacity-[0.12]"
+              points={poly(g.top)}
+              style={{ fill: "#ffffff" }}
+              className="pointer-events-none opacity-0 transition-opacity duration-150 group-hover/cell:opacity-[0.12]"
+            />
+            <polygon
+              points={poly(g.left)}
+              style={{ fill: "#ffffff" }}
+              className="pointer-events-none opacity-0 transition-opacity duration-150 group-hover/cell:opacity-[0.07]"
+            />
+            {/* selection outline + glow */}
+            {selected && (
+              <polygon
+                points={poly(g.silhouette)}
+                fill="none"
+                style={{ stroke: "var(--accent)" }}
+                strokeWidth={2.4}
+                strokeLinejoin="round"
+                filter="url(#tray-glow)"
+                className="pointer-events-none"
+              />
+            )}
+          </g>
+        );
+      })}
+
+      {/* interconnect edges (above the packages) */}
+      {drawn.map((l, i) => {
+        const a = anchors[l.from];
+        const b = anchors[l.to];
+        const s = edgeStyle(l.kind);
+        const mid: P = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        return (
+          <g key={`link-${i}-${l.from}-${l.to}`} className="pointer-events-none">
+            {/* drop shadow */}
+            <line
+              x1={r(a[0])}
+              y1={r(a[1] + 1.4)}
+              x2={r(b[0])}
+              y2={r(b[1] + 1.4)}
+              stroke="#0b0f14"
+              strokeWidth={s.width + 1.6}
+              strokeLinecap="round"
+              opacity={0.45}
+            />
+            <line
+              x1={r(a[0])}
+              y1={r(a[1])}
+              x2={r(b[0])}
+              y2={r(b[1])}
+              style={{ stroke: s.stroke }}
+              strokeWidth={s.width}
+              strokeDasharray={s.dash}
+              strokeLinecap={s.cap}
+              opacity={0.95}
+            />
+            <circle cx={r(a[0])} cy={r(a[1])} r={2.2} style={{ fill: s.stroke }} stroke="#0b0f14" strokeWidth={0.6} />
+            <circle cx={r(b[0])} cy={r(b[1])} r={2.2} style={{ fill: s.stroke }} stroke="#0b0f14" strokeWidth={0.6} />
+            {l.label && <Readout x={mid[0]} y={mid[1] - 3} text={l.label} color={s.stroke} size={8.5} />}
+          </g>
+        );
+      })}
+
+      {/* package labels (on top, clickable) */}
+      {labels.map(({ part, x, y }) => {
+        const selected = part.partId === selectedId;
+        const nm = part.name.length > 24 ? `${part.name.slice(0, 23)}…` : part.name;
+        const badge = part.count && part.count > 1 ? ` ×${part.count}` : "";
+        return (
+          <g
+            key={`lbl-${part.partId}`}
+            style={{ cursor: "pointer" }}
+            onClick={pick(part)}
+          >
+            <Readout
+              x={x}
+              y={y}
+              text={`${nm}${badge}`}
+              color={selected ? "var(--accent)" : "var(--canvas-text)"}
+              size={9}
+              bold={selected}
             />
           </g>
         );
       })}
 
-      {/* labels (on top), clickable too */}
-      {labels.map(({ part, x, y }) => {
-        const selected = part.partId === selectedId;
-        const nm = part.name.length > 26 ? `${part.name.slice(0, 25)}…` : part.name;
-        const badge = part.count && part.count > 1 ? ` ×${part.count}` : "";
-        return (
-          <g
-            key={`lbl-${part.partId}`}
-            className="cursor-pointer"
-            onClick={(e) => onPick(part.partId, e.ctrlKey || e.metaKey)}
-          >
-            <text
-              x={r(x)}
-              y={r(y)}
-              textAnchor="middle"
-              className="font-readout"
-              fontSize={9}
-              fill={selected ? "var(--accent)" : "var(--canvas-text)"}
-              style={{ paintOrder: "stroke" }}
-              stroke="#0e1116"
-              strokeWidth={3}
-            >
-              {nm}
-              {badge}
-            </text>
-          </g>
-        );
-      })}
+      {/* interconnect legend (only the kinds present) */}
+      {kinds.length > 0 && (
+        <g>
+          <Readout x={18} y={446 - kinds.length * 14} text="fabric" color="var(--canvas-text-dim)" anchor="start" size={8.5} />
+          {kinds.map((k, i) => {
+            const s = edgeStyle(k);
+            const y = 458 - (kinds.length - 1 - i) * 14;
+            return (
+              <g key={`leg-${k}`}>
+                <line
+                  x1={20}
+                  y1={y - 3}
+                  x2={42}
+                  y2={y - 3}
+                  style={{ stroke: s.stroke }}
+                  strokeWidth={s.width}
+                  strokeDasharray={s.dash}
+                  strokeLinecap={s.cap}
+                />
+                <Readout x={48} y={y} text={KIND_LABEL[k]} color="var(--canvas-text-muted)" anchor="start" size={8.5} />
+              </g>
+            );
+          })}
+        </g>
+      )}
     </svg>
   );
 }

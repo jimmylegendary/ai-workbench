@@ -49,6 +49,25 @@ export type CompKind =
   | "pcie"
   | "psu";
 
+/** A typed interconnect edge between two child parts of a node (for the twin). */
+export type InterconnectKind =
+  | "nvlink"
+  | "c2c"
+  | "pcie"
+  | "cxl"
+  | "osfp"
+  | "ib"
+  | "ethernet";
+
+export interface HwLink {
+  /** child partId (or comp glyph) the edge starts at */
+  from: string;
+  /** child partId the edge ends at */
+  to: string;
+  kind: InterconnectKind;
+  label?: string;
+}
+
 /** One node in the hardware tree (UI projection of a core `HwNode`). */
 export interface HwTreeNode {
   /** stable picking identity (Canvas 3) — what select({canvas:'c3', partId}) carries */
@@ -65,6 +84,8 @@ export interface HwTreeNode {
   trayKind?: TrayKind;
   /** silicon/leaf component kind (gpu|cpu|nvswitch|nic|hbm|sm|l2|…). */
   comp?: CompKind;
+  /** typed interconnects between this node's children (rendered as edges). */
+  links?: HwLink[];
   spec: HwSpec;
   children?: HwTreeNode[];
 }
@@ -216,6 +237,12 @@ const computeTray = (rack: string, idx: number, expand: boolean): HwTreeNode => 
     trayKind: "compute",
     role: "HGX 8-GPU baseboard node (Sapphire Rapids host)",
     spec: { height_u: "8", gpus: "8", power_w: "10,200", system_memory: "2 TB DDR5" },
+    links: [
+      { from: `pkg:${node}-gpu0`, to: `pkg:${node}-nvsw0`, kind: "nvlink", label: "NVLink (all-to-all)" },
+      { from: `pkg:${node}-gpu0`, to: `pkg:${node}-cx7`, kind: "pcie", label: "PCIe5" },
+      { from: `pkg:${node}-cx7`, to: `comp:${node}-osfp`, kind: "osfp", label: "400G" },
+      { from: `pkg:${node}-cpu0`, to: `pkg:${node}-gpu0`, kind: "pcie", label: "host PCIe5" },
+    ],
     children: [
       ...gpus,
       {
@@ -380,6 +407,11 @@ const gb200ComputeTray = (rack: string, idx: number, expand: boolean): HwTreeNod
     trayKind: "compute",
     role: "GB200 compute tray — 2 GB200 superchips (2 Grace + 4 Blackwell), DLC; no in-tray NVSwitch",
     spec: { height_u: "1", gpus: "4", cpus: "2 Grace", superchips: "2x GB200", cooling: "direct liquid" },
+    links: [
+      { from: `pkg:${node}-b0`, to: `pkg:${node}-grace`, kind: "c2c", label: "NVLink-C2C 900 GB/s" },
+      { from: `pkg:${node}-b0`, to: `pkg:${node}-cx8`, kind: "pcie", label: "PCIe" },
+      { from: `pkg:${node}-cx8`, to: `comp:${node}-osfp`, kind: "osfp", label: "800G" },
+    ],
     children: [
       ...gpus,
       {

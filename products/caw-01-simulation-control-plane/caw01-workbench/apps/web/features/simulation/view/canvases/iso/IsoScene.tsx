@@ -98,8 +98,10 @@ function IsoFallback({ container, parts, selectedId, onPick }: IsoSceneProps) {
   const big = parts.length <= 2;
 
   const onCardClick = (event: MouseEvent<HTMLButtonElement>, part: HwTreeNode): void => {
-    const hasChildren = !!part.children && part.children.length > 0;
-    onPick(part.partId, (event.ctrlKey || event.metaKey) && hasChildren);
+    // Pass the drill flag unconditionally (consistent with the dedicated scenes).
+    // The C3 viewer re-gates on hasChildren in HardwareTreeC3.onPick; the module
+    // composer wants to drill into an empty node to compose its interior.
+    onPick(part.partId, event.ctrlKey || event.metaKey);
   };
 
   return (
