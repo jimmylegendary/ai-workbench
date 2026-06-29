@@ -39,7 +39,8 @@ export function CanvasFrame({
     else void el.requestFullscreen?.();
   }, []);
 
-  // Backspace = go up one fractal level while this canvas is focused.
+  // Go up one fractal level while this canvas is focused: Backspace, Alt+←, or
+  // the mouse "back" button (button 3/4).
   useEffect(() => {
     if (!focused || !canBack || !onBack) return;
     const onKey = (e: KeyboardEvent) => {
@@ -49,13 +50,23 @@ export function CanvasFrame({
         (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
       )
         return;
-      if (e.key === "Backspace") {
+      if (e.key === "Backspace" || (e.altKey && e.key === "ArrowLeft")) {
+        e.preventDefault();
+        onBack();
+      }
+    };
+    const onMouse = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
         e.preventDefault();
         onBack();
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("mouseup", onMouse);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mouseup", onMouse);
+    };
   }, [focused, canBack, onBack]);
 
   return (

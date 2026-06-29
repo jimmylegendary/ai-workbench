@@ -7,6 +7,7 @@ import { CanvasFrame } from "../CanvasFrame";
 import { DrillHint } from "../DrillHint";
 import { LevelTag } from "./TwinObject";
 import { IsoScene } from "./iso/IsoScene";
+import { useDoubleDrillPick } from "../useDoubleDrillPick";
 
 /**
  * Canvas 3 — Hardware design, as a FRACTAL isometric digital twin. The current
@@ -43,6 +44,14 @@ export function HardwareTreeC3() {
     onClick: () => drillTo("c3", i - 1),
   }));
 
+  // Single click selects; double-click (or Ctrl/⌘+click) drills into a node
+  // that has an interior.
+  const onPick = useDoubleDrillPick(
+    (id) => select({ canvas: "c3", partId: id }),
+    (id) => drillInto("c3", id),
+    (id) => !!c3PartsById[id]?.children?.length,
+  );
+
   return (
     <CanvasFrame
       title="C3 · Hardware"
@@ -57,13 +66,7 @@ export function HardwareTreeC3() {
           container={container}
           parts={parts}
           selectedId={selection.canvas === "c3" ? selection.partId : undefined}
-          onPick={(id, drillIn) => {
-            // Only descend when the target actually has an interior (centralized
-            // guard so a Ctrl/⌘+click on a leaf selects instead of drilling).
-            const node = c3PartsById[id];
-            if (drillIn && node?.children?.length) drillInto("c3", id);
-            else select({ canvas: "c3", partId: id });
-          }}
+          onPick={onPick}
         />
 
         {/* selected-part spec readout (inline; PartInspector reads the same partId) */}
