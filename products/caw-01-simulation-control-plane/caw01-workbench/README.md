@@ -36,6 +36,9 @@ supabase db push                                   # applies packages/db/migrati
 pnpm --filter @caw/web dev                          # http://localhost:3000
 ```
 
+**Full run / preview / deploy guide → [`RUNNING.md`](./RUNNING.md)** (quick no-auth
+preview, real Supabase setup, the AI-report env, and how to deploy).
+
 ## Data boundary (ADR-0008)
 
 Supabase holds **control-plane metadata only** (users, projects, experiments, runs index, branches, evidence).
