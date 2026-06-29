@@ -267,16 +267,162 @@ const computeTray = (rack: string, idx: number, expand: boolean): HwTreeNode => 
   };
 };
 
-/** A GB200-style rack skeleton: 18 compute + 9 NVLink-switch trays + PSU. */
-const gpuRack = (rack: string, label: string, expandFirst: boolean): HwTreeNode => ({
+/** HGX H100 rack: 8-GPU compute nodes + ToR switch + PSU. NVLink is on the
+ *  baseboard (no rack NVLink-switch trays — that is a GB200 feature). */
+const hgxRack = (rack: string, label: string, expandFirst: boolean): HwTreeNode => ({
   partId: `rack:${rack}`,
   name: label,
   level: "rack",
-  role: "GB200 NVL72-style rack-scale unit (OCP ORv3 / MGX, 48U)",
-  spec: { trays: "27", gpus: "72", power_kw: "120", coolant: "DLC", weight_kg: "1360" },
+  role: "HGX H100 GPU rack — 8x 8-GPU baseboard nodes (NVLink on-baseboard)",
+  spec: { compute_nodes: "8", gpus: "64", power_kw: "~82", coolant: "air + RDHx", height: "42U" },
   children: [
     computeTray(rack, 0, expandFirst),
-    { ...computeTray(rack, 1, false), count: 17, name: "compute-tray-1..17 (x17 more)" },
+    { ...computeTray(rack, 1, false), count: 7, name: "compute-node-1..7 (x7 more)" },
+    {
+      partId: `tray:${rack}-tor`,
+      name: "top-of-rack switch",
+      level: "tray",
+      trayKind: "network",
+      role: "in-rack leaf (NDR IB / 400GbE)",
+      spec: { height_u: "1", ports: "32-64 x 400G" },
+    },
+    {
+      partId: `tray:${rack}-psu`,
+      name: "power-shelf",
+      level: "tray",
+      trayKind: "power",
+      count: 4,
+      role: "AC→DC PSU shelves (N+1)",
+      spec: { psus: "6 x 3 kW", redundancy: "N+1" },
+    },
+  ],
+});
+
+/* ----------------------------------------------------------------------- *
+ * Blackwell B200 GPU + GB200 NVL72 tray/rack (2 Grace + 4 Blackwell per tray,
+ * NVLink exits to the rack switch trays — NO in-tray NVSwitch).
+ * ----------------------------------------------------------------------- */
+
+const blackwellGpu = (node: string, idx: number): HwTreeNode => {
+  const gpu = `${node}-b${idx}`;
+  return {
+    partId: `pkg:${gpu}`,
+    name: `b200-${idx}`,
+    level: "package",
+    comp: "gpu",
+    role: "Blackwell GPU (2 reticle-limit dies fused as one, TSMC 4NP)",
+    spec: { memory: "192 GiB HBM3e", mem_bw: "8 TB/s", tdp_w: "~1000", fp4_sparse: "~20 PFLOPS", dies: "2" },
+    children: [
+      {
+        partId: `die:${gpu}`,
+        name: "blackwell die-pair",
+        level: "die",
+        spec: { process: "TSMC 4NP", transistors: "208 B", die_link: "10 TB/s NV-HBI", reticles: "2" },
+        children: [
+          {
+            partId: `comp:${gpu}-smarray`,
+            name: "sm-array",
+            level: "component",
+            comp: "sm",
+            role: "streaming multiprocessors (5th-gen Tensor / Transformer Engine 2)",
+            spec: { tensor_gen: "5th", dtypes: "FP4/FP6/FP8/BF16", note: "per-SM counts not public" },
+            children: [
+              {
+                partId: `comp:${gpu}-tc`,
+                name: "tensor-core (5th-gen)",
+                level: "component",
+                comp: "tensor",
+                role: "FP4/FP6 microscaling (Transformer Engine 2)",
+                spec: { dtypes: "FP4/FP6/FP8/BF16/TF32" },
+              },
+            ],
+          },
+          {
+            partId: `comp:${gpu}-l2`,
+            name: "l2-cache",
+            level: "component",
+            comp: "l2",
+            role: "chip-wide last-level cache (unified across die-pair)",
+            spec: { note: "large unified L2" },
+          },
+          {
+            partId: `comp:${gpu}-hbm`,
+            name: "hbm3e-stack",
+            level: "component",
+            comp: "hbm",
+            count: 8,
+            role: "global memory — 8 stacks",
+            spec: { capacity: "192 GiB", bandwidth: "8 TB/s", per_stack: "24 GiB" },
+          },
+          {
+            partId: `comp:${gpu}-nvlink`,
+            name: "nvlink-5 phy",
+            level: "component",
+            comp: "nvlink",
+            role: "18 links → rack NVSwitch fabric",
+            spec: { links: "18", bandwidth: "1.8 TB/s", gen: "5" },
+          },
+        ],
+      },
+    ],
+  };
+};
+
+const gb200ComputeTray = (rack: string, idx: number, expand: boolean): HwTreeNode => {
+  const node = `${rack}-t${idx}`;
+  const gpus: HwTreeNode[] = expand
+    ? [blackwellGpu(node, 0), { ...blackwellGpu(node, 1), count: 3, name: "b200-1..3 (x3 more)", children: undefined }]
+    : [{ ...blackwellGpu(node, 0), count: 4, name: "b200 x4", children: undefined }];
+  return {
+    partId: `tray:${node}`,
+    name: `compute-tray-${idx}`,
+    level: "tray",
+    trayKind: "compute",
+    role: "GB200 compute tray — 2 GB200 superchips (2 Grace + 4 Blackwell), DLC; no in-tray NVSwitch",
+    spec: { height_u: "1", gpus: "4", cpus: "2 Grace", superchips: "2x GB200", cooling: "direct liquid" },
+    children: [
+      ...gpus,
+      {
+        partId: `pkg:${node}-grace`,
+        name: "grace cpu",
+        level: "package",
+        comp: "cpu",
+        count: 2,
+        role: "Arm Neoverse host (NVLink-C2C to Blackwell)",
+        spec: { cores: "72", lpddr5x: "480 GiB", c2c: "900 GB/s" },
+      },
+      {
+        partId: `pkg:${node}-cx8`,
+        name: "connectx-8 800G",
+        level: "package",
+        comp: "nic",
+        count: 4,
+        role: "scale-out NIC (rail-optimized)",
+        spec: { speed: "800 Gb/s", fabric: "XDR IB / 800GbE" },
+      },
+      {
+        partId: `comp:${node}-osfp`,
+        name: "osfp cage",
+        level: "component",
+        comp: "osfp",
+        count: 4,
+        role: "optical scale-out ports",
+        spec: { type: "OSFP", lanes: "100G/lane" },
+      },
+    ],
+  };
+};
+
+/** GB200 NVL72 rack: 18 compute trays + 9 NVLink-switch trays + PSU = 72 GPU. */
+const gb200Rack = (rack: string, label: string, expandFirst: boolean): HwTreeNode => ({
+  partId: `rack:${rack}`,
+  name: label,
+  level: "rack",
+  role: "GB200 NVL72 — 72-GPU single NVLink domain (OCP ORv3 / MGX, ~48U)",
+  spec: { compute_trays: "18", switch_trays: "9", gpus: "72", power_kw: "~120", coolant: "DLC", weight_kg: "1360" },
+  children: [
+    gb200ComputeTray(rack, 0, expandFirst),
+    { ...gb200ComputeTray(rack, 1, false), count: 17, name: "compute-tray-1..17 (x17 more)" },
     {
       partId: `tray:${rack}-sw0`,
       name: "nvlink-switch-tray-0",
@@ -291,8 +437,8 @@ const gpuRack = (rack: string, label: string, expandFirst: boolean): HwTreeNode 
           level: "package",
           comp: "nvswitch",
           count: 2,
-          role: "72-port NVLink crossbar",
-          spec: { ports: "72", throughput: "7.2 TB/s", sharp: "NVLink SHARP" },
+          role: "72-port NVLink crossbar (NVLink SHARP)",
+          spec: { ports: "72", throughput: "7.2 TB/s", sharp: "yes" },
         },
       ],
     },
@@ -318,24 +464,40 @@ const gpuRack = (rack: string, label: string, expandFirst: boolean): HwTreeNode 
 });
 
 /* ----------------------------------------------------------------------- *
- * Zones (clusters) of the ~100 MW room.
+ * Zones (clusters) of the ~100 MW room. Two distinct GPU systems are modelled
+ * as separate clusters (they are different real products): GB200 NVL72 and
+ * HGX H100 — the data center composes a mix.
  * ----------------------------------------------------------------------- */
 
-const gpuCluster: HwTreeNode = {
-  partId: "cluster:gpu",
-  name: "gpu-compute-zone",
+const gb200Cluster: HwTreeNode = {
+  partId: "cluster:gpu-gb200",
+  name: "gpu-cluster · GB200 NVL72",
   level: "cluster",
   clusterType: "gpu",
-  role: "primary AI training/inference fabric (~80-85% of IT power)",
+  role: "primary Blackwell training/inference fabric (NVL72 rack-scale)",
   spec: {
-    racks: "~500-650",
-    gpus: "~40,000-47,000",
-    rack_unit: "GB200 NVL72",
+    rack_unit: "GB200 NVL72 (72 GPU)",
     pod_su: "8-9 NVL72 racks (~576 GPUs)",
-    interconnect: "rail-optimized fat-tree",
+    racks: "~500-650",
+    gpus: "~36,000-47,000",
     fabric: "NVLink5 (scale-up) + Quantum-X800 IB / Spectrum-X (scale-out)",
   },
-  children: [gpuRack("gpu-r0", "rack-0 (GB200 NVL72)", true), gpuRack("gpu-r1", "rack-1..N", false)],
+  children: [gb200Rack("gb200-r0", "rack-0 (GB200 NVL72)", true), gb200Rack("gb200-r1", "rack-1..N", false)],
+};
+
+const hgxCluster: HwTreeNode = {
+  partId: "cluster:gpu-hgx",
+  name: "gpu-cluster · HGX H100",
+  level: "cluster",
+  clusterType: "gpu",
+  role: "Hopper-generation fabric — 8-GPU HGX nodes (NVLink on-baseboard)",
+  spec: {
+    rack_unit: "HGX H100 8-GPU node",
+    gpus_per_node: "8",
+    fabric: "on-baseboard NVSwitch (scale-up) + NDR IB (scale-out)",
+    note: "previous-gen GPU zone alongside the GB200 fleet",
+  },
+  children: [hgxRack("hgx-r0", "rack-0 (HGX H100)", true), hgxRack("hgx-r1", "rack-1..N", false)],
 };
 
 const headCluster: HwTreeNode = {
@@ -546,8 +708,8 @@ const dataCenter: HwTreeNode = {
   name: "Server · Data center",
   level: "data_center",
   role: "~100 MW AI room organised into zones by cluster type",
-  spec: { it_power_mw: "91", facility_mw: "100", pue: "1.1", cooling: "~70% liquid / 30% air", zones: "6" },
-  children: [gpuCluster, headCluster, cxlCluster, storageCluster, cxmtCluster, specialCluster],
+  spec: { it_power_mw: "91", facility_mw: "100", pue: "1.1", cooling: "~70% liquid / 30% air", zones: "7" },
+  children: [gb200Cluster, hgxCluster, headCluster, cxlCluster, storageCluster, cxmtCluster, specialCluster],
 };
 
 /* ----------------------------------------------------------------------- *

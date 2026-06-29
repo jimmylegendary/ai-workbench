@@ -115,11 +115,11 @@ root:
   spec: { it_power_mw: 91, pue: 1.1, cooling: "70% liquid / 30% air" }
   children:
     - id: dc/zone/gpu
-      name: gpu-compute-zone
+      name: gpu-cluster · GB200 NVL72   # a sibling "gpu-cluster · HGX H100" zone models the Hopper fleet
       level: cluster
       clusterType: gpu
-      role: primary AI training/inference fabric
-      spec: { racks: "~500-650", gpus: "~40,000-47,000", rack_unit: GB200 NVL72 }
+      role: primary Blackwell training/inference fabric (NVL72 rack-scale)
+      spec: { racks: "~500-650", gpus: "~36,000-47,000", rack_unit: GB200 NVL72 }
       children:
         - id: gpu/rack-0
           name: GB200 NVL72
@@ -133,43 +133,36 @@ root:
             - id: gpu/rack-0/tray/compute-0
               name: compute-tray-0
               level: tray            # trayKind: compute
-              role: HGX 8-GPU baseboard node
-              spec: { gpus: 8, power_w: 10200, system_memory: 2 TB DDR5 }
+              role: GB200 compute tray — 2 GB200 superchips (2 Grace + 4 Blackwell), no in-tray NVSwitch
+              spec: { gpus: 4, cpus: 2 Grace, superchips: 2, cooling: direct-liquid }
               ports:
-                - { id: cx7, kind: osfp, count: 8, bw: 400 Gb/s, role: scale-out }
+                - { id: cx8, kind: osfp, count: 4, bw: 800 Gb/s, role: scale-out }
               children:
                 - id: gpu/rack-0/tray/compute-0/gpu-0
-                  name: h100-sxm5-0
+                  name: b200-0
                   level: gpu          # comp: gpu
-                  spec: { memory: 80 GiB HBM3, mem_bw: 3.35 TB/s, tdp_w: 700 }
+                  spec: { memory: 192 GiB HBM3e, mem_bw: 8 TB/s, tdp_w: ~1000, dies: 2 }
                   ports:
-                    - { id: nvlink, kind: nvlink, gen: "4", count: 18, bw: 900 GB/s }
-                    - { id: pcie, kind: pcie, gen: Gen5, count: 16, bw: 128 GB/s }
+                    - { id: nvlink, kind: nvlink, gen: "5", count: 18, bw: 1.8 TB/s }
+                    - { id: c2c, kind: nvlink, count: 1, bw: 900 GB/s, note: NVLink-C2C to Grace }
                   children:
                     - id: .../gpu-0/die
-                      name: gh100-die
+                      name: blackwell die-pair
                       level: die
-                      spec: { process: TSMC 4N, area_mm2: 814, transistors: 80 B, enabled_sms: 132 }
+                      spec: { process: TSMC 4NP, transistors: 208 B, reticles: 2, die_link: 10 TB/s NV-HBI }
                       children:
                         - id: .../gpu-0/sm-array
                           name: sm-array
                           level: sm
-                          count: 132
-                          spec: { fp32_cores: 16896, tensor_cores: 528, fp16_tc: 989 TFLOPS }
+                          spec: { tensor_gen: 5th, dtypes: FP4/FP6/FP8/BF16, note: per-SM counts not public }
                           children:
-                            - id: .../sm-0
-                              name: sm (representative)
-                              level: sm
-                              spec: { fp32: 128, tensor_cores: 4, l1_shared: 256 KiB }
-                              children:
-                                - { id: .../sm-0/tc, name: tensor-core, level: tensor_core,
-                                    count: 4, spec: { dtypes: FP8/FP16/BF16/TF32/FP64 } }
-                                - { id: .../sm-0/rf, name: register-file, level: cache,
-                                    spec: { size: 256 KiB } }
+                            - { id: .../sm/tc, name: tensor-core, level: tensor_core,
+                                spec: { dtypes: FP4/FP6/FP8/BF16/TF32 } }
                         - { id: .../gpu-0/l2, name: l2-cache, level: cache,
-                            spec: { size: 50 MiB, partitions: 2 } }
-                        - { id: .../gpu-0/hbm, name: hbm3-stack, level: memory,
-                            count: 5, spec: { capacity: 80 GiB, bandwidth: 3.35 TB/s } }
+                            spec: { note: large unified L2 across the die-pair } }
+                        - { id: .../gpu-0/hbm, name: hbm3e-stack, level: memory,
+                            count: 8, spec: { capacity: 192 GiB, bandwidth: 8 TB/s, per_stack: 24 GiB } }
+              # (Hopper GH100 internals — 132 SM / 50 MB L2 / 80 GB HBM3 — live in the sibling HGX H100 cluster.)
             - id: gpu/rack-0/tray/nvswitch-0
               name: nvlink-switch-tray-0
               level: tray            # trayKind: nvlink-switch
