@@ -73,6 +73,32 @@ hw_node(id, experiment_id, parent_id NULL, level ENUM(cluster,rack,tray,package,
 - `spec JSONB` holds level-specific attributes (opaque until promoted to a column by the promotion principle).
 - `part_id` is the stable identity returned by canvas picking ([../05-caw01-simulation-control-plane/canvas-3-hw-design.md](../05-caw01-simulation-control-plane/canvas-3-hw-design.md)).
 
+## Digital-twin roots, composition & modules (forward, v-next)
+
+Forward design for the digital-twin Canvas-3 ([canvas-3-hw-design.md](../05-caw01-simulation-control-plane/canvas-3-hw-design.md));
+captured so the schema doesn't need reshaping later. Additive to `hw_node`:
+
+- **New root levels:** extend the `level` enum with `data_center` and `client`. **Server entry == the
+  `data_center` root**; **Client entry == the `client` root**. A data center holds many `cluster` children.
+- **Cluster type:** `cluster` rows gain `cluster_type` (`gpu | cpu | cxl | storage | cxmt | special | custom`),
+  so one data center composes a mix of cluster kinds.
+- **Modules:** `HwModule(id, name, version, root_level, spec_tree JSONB, source)` — a reusable, versioned HW
+  subtree. **Edit any object → save as `HwModule`**; **Module Design authors `HwModule` from scratch → import**
+  by instantiating its `spec_tree` as `hw_node`s under a target (bidirectional). `hw_node.module_ref` (nullable)
+  records provenance when a subtree came from a module.
+
+| Entity (forward) | Key columns | Notes |
+| --- | --- | --- |
+| `HwModule` | name, version, root_level, spec_tree, source(authored/captured) | reusable HW subtree; CRUD in Module Design |
+
+## Workload execution location
+
+`WorkloadModel` step nodes carry an **`execution_location`** (`server | client`) — see
+[canvas-1-ai-workload-flow.md](../05-caw01-simulation-control-plane/canvas-1-ai-workload-flow.md). Policy default:
+`llm` steps → `server` (invoked through the serving framework, running in the `data_center`); all other steps →
+`client` (run against the `client` HW root). Stored on the step (e.g. `agent_turn_spec` node attr or a
+`step_location` column when steps are promoted to rows).
+
 ## Experiment as the join
 
 ```
