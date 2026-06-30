@@ -95,6 +95,15 @@ body {
   line-height: 20px;
 }
 
+/* Density (Settings → Appearance). `compact` is the control-plane default set
+   above; `comfortable` loosens the base type scale a touch. Applied to <html>
+   as data-density by features/settings (ThemeApplier + no-flash script). */
+html[data-density="comfortable"],
+html[data-density="comfortable"] body {
+  font-size: 15px;
+  line-height: 22px;
+}
+
 /* mono is load-bearing for IR / metrics / ids */
 .font-readout {
   font-family: var(--font-mono);

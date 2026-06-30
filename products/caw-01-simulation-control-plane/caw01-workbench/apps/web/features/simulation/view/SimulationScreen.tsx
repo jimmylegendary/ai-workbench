@@ -5,6 +5,7 @@ import { SplitPane } from "@/components/shell/SplitPane";
 import { useWorkbenchStore, type CanvasId } from "@/store/workbenchStore";
 import { useSimulationVM } from "../viewmodel/useSimulationVM";
 import { ControlPanel } from "./ControlPanel";
+import { ServingOptions } from "./ServingOptions";
 import { ViewToolbar } from "./ViewToolbar";
 import { FlowCanvasC1 } from "./canvases/FlowCanvasC1";
 import { FlowCanvasC2 } from "./canvases/FlowCanvasC2";
@@ -60,16 +61,23 @@ export function SimulationScreen({ experimentId }: { experimentId: string }) {
       right={
         <div className="flex h-full min-h-0 flex-col">
           <ViewToolbar />
-          <div className="min-h-0 flex-1 px-2">
-            {mode === "all" ? (
-              <div className="grid h-full grid-cols-3 grid-rows-1 gap-2">
-                {canvases.c1}
-                {canvases.c2}
-                {canvases.c3}
-              </div>
-            ) : (
-              <div className="h-full">{canvases[activeTab]}</div>
-            )}
+          {/* canvas area + a self-contained HW-aware serving-options rail
+             (Canvas 2 representation, reading the Canvas 3 hardware model). */}
+          <div className="flex min-h-0 flex-1 gap-2 px-2">
+            <div className="min-h-0 flex-1">
+              {mode === "all" ? (
+                <div className="grid h-full grid-cols-3 grid-rows-1 gap-2">
+                  {canvases.c1}
+                  {canvases.c2}
+                  {canvases.c3}
+                </div>
+              ) : (
+                <div className="h-full">{canvases[activeTab]}</div>
+              )}
+            </div>
+            <div className="w-64 shrink-0">
+              <ServingOptions />
+            </div>
           </div>
           {/* compact live sim-log strip — canvases get the bulk of the height */}
           <div className="mt-2 h-44 shrink-0 border-t border-border">

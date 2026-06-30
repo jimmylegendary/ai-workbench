@@ -225,6 +225,15 @@ export function paletteFor(designLevel: HwLevel): Asset[] {
   return child ? (ASSETS[child] ?? []) : [];
 }
 
+/** Resolve a palette asset by its `key` across every level (drag-and-drop). */
+export function assetByKey(key: string): Asset | undefined {
+  for (const list of Object.values(ASSETS)) {
+    const hit = list.find((a) => a.key === key);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 /** Stamp a template into a real node with a unique partId. */
 export function instantiate(asset: Asset, seq: number): HwTreeNode {
   return { ...asset.template, partId: `${asset.key}-${seq}` };

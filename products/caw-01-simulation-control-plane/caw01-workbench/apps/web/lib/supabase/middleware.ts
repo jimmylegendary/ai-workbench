@@ -7,10 +7,16 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
  * Refresh the Supabase session on every (app) request and gate unauthenticated
  * users to /login (ADR-0008 §1). Called from the root middleware.ts.
  */
+/** Supabase is "configured" only when both public env vars are present. */
+export const supabaseConfigured = (): boolean =>
+  !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
 export async function updateSession(request: NextRequest) {
-  // Dev preview escape hatch (OFF by default): skip the auth gate so the UI can
-  // be previewed before a real Supabase project exists. Never set in prod.
-  if (process.env.PREVIEW_NO_AUTH === "1") {
+  // Local mode: when Supabase isn't configured (no env) the app runs WITHOUT a
+  // login gate (auth is wired later). The PREVIEW_NO_AUTH flag forces the same
+  // even when dummy env is present. Never leave a real deploy unconfigured.
+  if (!supabaseConfigured() || process.env.PREVIEW_NO_AUTH === "1") {
     return NextResponse.next({ request });
   }
 

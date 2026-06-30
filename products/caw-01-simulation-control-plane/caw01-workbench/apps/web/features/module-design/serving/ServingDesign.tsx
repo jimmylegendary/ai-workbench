@@ -2,7 +2,7 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -10,8 +10,10 @@ import {
   MarkerType,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Connection,
-  type EdgeMouseHandler,
+  type EdgeChange,
+  type NodeChange,
   type NodeMouseHandler,
   type NodeTypes,
 } from "@xyflow/react";
@@ -45,6 +47,10 @@ type SavedServingModule = SavedFlowModule<ServingFlowNode, ServingFlowEdge>;
  */
 
 const nodeTypes: NodeTypes = { serving: ServingNode };
+
+/** dataTransfer keys carrying the dragged palette stage onto the canvas. */
+const DND_KIND = "application/node-kind";
+const DND_LABEL = "application/node-label";
 
 // ---- palette ---------------------------------------------------------------
 
@@ -116,6 +122,7 @@ export function ServingDesign() {
   const selectedId = useServingDesignStore((s) => s.selectedId);
   const add = useServingDesignStore((s) => s.add);
   const removeNode = useServingDesignStore((s) => s.removeNode);
+  const moveNode = useServingDesignStore((s) => s.moveNode);
   const connect = useServingDesignStore((s) => s.connect);
   const removeEdge = useServingDesignStore((s) => s.removeEdge);
   const select = useServingDesignStore((s) => s.select);
@@ -197,8 +204,24 @@ export function ServingDesign() {
     [select],
   );
 
-  const onEdgeClick = useCallback<EdgeMouseHandler<ServingFlowEdge>>(
-    (_e, edge) => removeEdge(edge.id),
+  // Live drag / select / remove (Delete key) → commit back into the store.
+  const onNodesChange = useCallback(
+    (changes: NodeChange<ServingFlowNode>[]) => {
+      for (const c of changes) {
+        if (c.type === "position" && c.position)
+          moveNode(c.id, c.position.x, c.position.y);
+        else if (c.type === "remove") removeNode(c.id);
+        else if (c.type === "select") select(c.selected ? c.id : null);
+      }
+    },
+    [moveNode, removeNode, select],
+  );
+
+  // Route edge 'remove' changes (Delete key on a selected edge) to the store.
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      for (const c of changes) if (c.type === "remove") removeEdge(c.id);
+    },
     [removeEdge],
   );
 
@@ -229,7 +252,9 @@ export function ServingDesign() {
           edges={rfEdges}
           onConnect={onConnect}
           onNodeClick={onNodeClick}
-          onEdgeClick={onEdgeClick}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onAdd={add}
         />
         <Inspector
           selected={selected}
@@ -275,13 +300,19 @@ function Palette({
               <button
                 key={item.label}
                 type="button"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(DND_KIND, item.kind);
+                  e.dataTransfer.setData(DND_LABEL, item.label);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
                 onClick={() => onAdd(item.kind, item.label)}
-                className="block w-full rounded-[var(--radius-md)] border border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm"
+                className="block w-full cursor-grab rounded-[var(--radius-md)] border border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm active:cursor-grabbing"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">{item.label}</span>
                   <span className="font-readout text-[9px] uppercase text-text-muted">
-                    + add
+                    drag / +
                   </span>
                 </div>
                 <p className="mt-0.5 truncate font-readout text-xs text-text-muted">
@@ -332,61 +363,125 @@ function CanvasPane({
   edges,
   onConnect,
   onNodeClick,
-  onEdgeClick,
+  onNodesChange,
+  onEdgesChange,
+  onAdd,
 }: {
   empty: boolean;
   nodes: ServingFlowNode[];
   edges: ServingFlowEdge[];
   onConnect: (c: Connection) => void;
   onNodeClick: NodeMouseHandler<ServingFlowNode>;
-  onEdgeClick: EdgeMouseHandler<ServingFlowEdge>;
+  onNodesChange: (changes: NodeChange<ServingFlowNode>[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onAdd: (kind: ServingKind, label: string, pos?: { x: number; y: number }) => void;
 }) {
   return (
     <section className="flex min-h-0 flex-col bg-canvas-bg">
       <div className="flex items-center gap-2 border-b border-canvas-grid px-3 py-2">
         <span className="font-readout text-xs text-canvas-text-muted">
-          Drag a node&apos;s right handle to another&apos;s left handle to connect ·
-          click an edge to remove it
+          Drag a stage from the palette onto the canvas · wire right handle →
+          left handle · select + Delete to remove
         </span>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <ReactFlowProvider>
-          <div className="h-full w-full bg-canvas-bg">
-            <ReactFlow<ServingFlowNode, ServingFlowEdge>
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              onConnect={onConnect}
-              onNodeClick={onNodeClick}
-              onEdgeClick={onEdgeClick}
-              onNodesChange={() => {}}
-              onEdgesChange={() => {}}
-              nodesDraggable={false}
-              nodesConnectable
-              elementsSelectable={false}
-              fitView
-              proOptions={{ hideAttribution: true }}
-              className="bg-canvas-bg"
-            >
-              <Background
-                variant={BackgroundVariant.Dots}
-                gap={16}
-                size={1}
-                color="var(--canvas-grid)"
-              />
-              <Controls />
-            </ReactFlow>
-          </div>
+          <ServingFlow
+            nodes={nodes}
+            edges={edges}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onAdd={onAdd}
+          />
         </ReactFlowProvider>
         {empty && (
           <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center">
             <span className="font-readout text-xs text-canvas-text-dim">
-              empty — add serving stages from the palette
+              empty — drag serving stages from the palette
             </span>
           </div>
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * Live React Flow surface. Lives INSIDE <ReactFlowProvider> so it can call
+ * useReactFlow().screenToFlowPosition to map a palette drop onto flow coords.
+ * Click-to-add stays available from the palette as a fallback; dropping a stage
+ * adds it exactly where it landed. Delete/Backspace removes the selected
+ * node(s)/edge(s) (routed through onNodesChange/onEdgesChange).
+ */
+function ServingFlow({
+  nodes,
+  edges,
+  onConnect,
+  onNodeClick,
+  onNodesChange,
+  onEdgesChange,
+  onAdd,
+}: {
+  nodes: ServingFlowNode[];
+  edges: ServingFlowEdge[];
+  onConnect: (c: Connection) => void;
+  onNodeClick: NodeMouseHandler<ServingFlowNode>;
+  onNodesChange: (changes: NodeChange<ServingFlowNode>[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onAdd: (kind: ServingKind, label: string, pos?: { x: number; y: number }) => void;
+}) {
+  const { screenToFlowPosition } = useReactFlow();
+
+  const onDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      const kind = e.dataTransfer.getData(DND_KIND) as ServingKind;
+      if (!kind) return;
+      const label = e.dataTransfer.getData(DND_LABEL) || kind;
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      onAdd(kind, label, pos);
+    },
+    [screenToFlowPosition, onAdd],
+  );
+
+  return (
+    <div
+      className="h-full w-full bg-canvas-bg"
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      <ReactFlow<ServingFlowNode, ServingFlowEdge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onConnect={onConnect}
+        onNodeClick={onNodeClick}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        deleteKeyCode={["Delete", "Backspace"]}
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+        fitView
+        proOptions={{ hideAttribution: true }}
+        className="bg-canvas-bg"
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={16}
+          size={1}
+          color="var(--canvas-grid)"
+        />
+        <Controls />
+      </ReactFlow>
+    </div>
   );
 }
 

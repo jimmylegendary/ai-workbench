@@ -45,10 +45,14 @@ export type ServingDesignState = {
   edges: ServingFlowEdge[];
   selectedId: string | null;
 
-  /** Append a new stage node of `kind` (auto-positioned by stage column). */
-  add: (kind: ServingKind, label: string) => void;
+  /** Append a new stage node of `kind`. When `pos` is given (a drag-and-drop
+   *  drop point in flow coords) the node lands THERE; otherwise it auto-lays
+   *  out by stage column. */
+  add: (kind: ServingKind, label: string, pos?: { x: number; y: number }) => void;
   /** Remove a node and any edges touching it. */
   removeNode: (id: string) => void;
+  /** Move a node (React Flow drag commits final position here). */
+  moveNode: (id: string, x: number, y: number) => void;
   /** Connect source → target, classifying validity against the grammar. */
   connect: (source: string, target: string) => void;
   /** Remove a single edge by id. */
@@ -80,19 +84,27 @@ export const useServingDesignStore = create<ServingDesignState>((set, get) => ({
   edges: [],
   selectedId: null,
 
-  add: (kind, label) => {
+  add: (kind, label, pos) => {
     const id = nextId(kind);
-    // Lay nodes out in stage columns; stack vertically within a column.
+    // Lay nodes out in stage columns; stack vertically within a column unless a
+    // drop point was supplied (drag-and-drop overrides the column layout).
     const col = STAGE_RANK[kind];
     const inCol = get().nodes.filter((n) => n.data.kind === kind).length;
     const node: ServingFlowNode = {
       id,
       type: "serving",
-      position: { x: col * 300, y: inCol * 130 },
+      position: pos ?? { x: col * 300, y: inCol * 130 },
       data: { label, kind },
     };
     set((s) => ({ nodes: [...s.nodes, node], selectedId: id }));
   },
+
+  moveNode: (id, x, y) =>
+    set((s) => ({
+      nodes: s.nodes.map((n) =>
+        n.id === id ? { ...n, position: { x, y } } : n,
+      ),
+    })),
 
   removeNode: (id) =>
     set((s) => ({

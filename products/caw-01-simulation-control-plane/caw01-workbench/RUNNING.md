@@ -11,8 +11,10 @@ sibling service and is currently stubbed — see `design/`.)
 
 ## 1. Quick preview (no Supabase, no login)
 
-The fastest way to look at the UI. `PREVIEW_NO_AUTH=1` bypasses the auth gate so
-you don't need a Supabase project; dummy public env satisfies the client.
+**When Supabase env is absent the app runs in local mode — no login gate** (auth is
+wired later), so a plain `pnpm --filter @caw/web dev` already works for local use;
+Settings/User persist to localStorage. `PREVIEW_NO_AUTH=1` forces the same even when
+(dummy) Supabase env is present, and `-H 0.0.0.0` exposes it over tailscale:
 
 ```bash
 cd caw01-workbench/apps/web

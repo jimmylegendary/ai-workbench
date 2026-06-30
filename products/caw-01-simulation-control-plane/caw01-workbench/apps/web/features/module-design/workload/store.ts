@@ -31,9 +31,11 @@ interface WorkloadDesignState {
   selectedId: string | null;
   seq: number;
 
-  /** Append a node of `kind`; positions it on a gentle cascade. Returns nothing
-   *  but selects the new node so the inspector opens on it. */
-  addNode: (kind: HarnessKind) => void;
+  /** Append a node of `kind`; selects the new node so the inspector opens on it.
+   *  When `pos` is given (a drag-and-drop drop point in flow coords) the node
+   *  lands THERE; otherwise it cascades gently so click-to-add stacks don't
+   *  overlap. */
+  addNode: (kind: HarnessKind, pos?: { x: number; y: number }) => void;
   /** Remove a node and any edges touching it. */
   removeNode: (id: string) => void;
   /** Move a node (React Flow drag commits final position here). */
@@ -78,7 +80,7 @@ export const useWorkloadDesignStore = create<WorkloadDesignState>((set) => ({
   selectedId: null,
   seq: 0,
 
-  addNode: (kind) =>
+  addNode: (kind, pos) =>
     set((s) => {
       const seq = s.seq + 1;
       const id = `${kind}-${seq}`;
@@ -88,8 +90,8 @@ export const useWorkloadDesignStore = create<WorkloadDesignState>((set) => ({
         id,
         kind,
         label: KIND_LABEL[kind],
-        x: 80 + step,
-        y: 80 + step,
+        x: pos ? pos.x : 80 + step,
+        y: pos ? pos.y : 80 + step,
       };
       return { nodes: [...s.nodes, node], seq, selectedId: id };
     }),

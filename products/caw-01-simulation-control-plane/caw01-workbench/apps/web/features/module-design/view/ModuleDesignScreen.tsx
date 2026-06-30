@@ -27,9 +27,13 @@ import {
   CHILD_LEVEL,
   DESIGN_LEVELS,
   FABRIC_KINDS,
+  assetByKey,
   paletteFor,
   type Asset,
 } from "../assets";
+
+/** dataTransfer MIME used to carry a palette asset key during drag-and-drop. */
+const ASSET_DND_MIME = "application/x-caw-asset";
 
 /**
  * HW MODULE DESIGN — live editor. The working module is a HwTreeNode tree in the
@@ -216,6 +220,23 @@ export function ModuleDesignScreen() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // ---- DELETE / BACKSPACE removes the selected node (HW mode only) ----------
+  // Ignored while typing in a field so YAML/inspector editing isn't hijacked.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (mode !== "hw") return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!selectedId) return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      e.preventDefault();
+      removeNode(selectedId);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, selectedId, removeNode]);
+
   const handleSave = useCallback(async () => {
     if (!root) return;
     const mod = await moduleRepository.save(root);
@@ -313,6 +334,7 @@ export function ModuleDesignScreen() {
             focus={focus}
             crumbs={focusPath()}
             selectedId={selectedId}
+            onAddAsset={addChild}
             onPick={handlePick}
             onCrumb={(id) => focusTo(id)}
             connectMode={connectMode}
@@ -499,8 +521,14 @@ function Palette({
             <button
               key={asset.key}
               type="button"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(ASSET_DND_MIME, asset.key);
+                e.dataTransfer.effectAllowed = "copy";
+              }}
               onClick={() => onAdd(asset)}
-              className="block w-full rounded-[var(--radius-md)] border border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm"
+              title="Click to add, or drag onto the canvas"
+              className="block w-full cursor-grab rounded-[var(--radius-md)] border border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm active:cursor-grabbing"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium">{asset.label}</span>
@@ -557,6 +585,7 @@ function CanvasPane({
   focus,
   crumbs,
   selectedId,
+  onAddAsset,
   onPick,
   onCrumb,
   connectMode,
@@ -571,6 +600,7 @@ function CanvasPane({
   focus: HwTreeNode | null;
   crumbs: HwTreeNode[];
   selectedId: string | null;
+  onAddAsset: (asset: Asset) => void;
   onPick: (id: string, drill: boolean) => void;
   onCrumb: (id: string) => void;
   connectMode: boolean;
@@ -585,6 +615,8 @@ function CanvasPane({
   // ---- drag-to-connect (rubber-band) state. A pointer-drag from one part to
   // another opens the same fabric-kind menu the click "Connect" mode uses. ----
   const canvasRef = useRef<HTMLDivElement>(null);
+  // drop-target affordance: ring while a palette asset is dragged over.
+  const [dropActive, setDropActive] = useState(false);
   const [drag, setDrag] = useState<{
     from: string;
     x1: number;
@@ -703,8 +735,34 @@ function CanvasPane({
         </div>
       )}
 
-      {/* live twin canvas — re-renders on every store edit */}
-      <div ref={canvasRef} className="relative min-h-0 flex-1 overflow-hidden">
+      {/* live twin canvas — re-renders on every store edit. Also a DROP TARGET:
+          drag a palette asset here to add it to the focused node. */}
+      <div
+        ref={canvasRef}
+        className={cn(
+          "relative min-h-0 flex-1 overflow-hidden",
+          dropActive &&
+            "ring-2 ring-inset ring-accent after:pointer-events-none after:absolute after:inset-0 after:bg-accent/5",
+        )}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(ASSET_DND_MIME)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          if (!dropActive) setDropActive(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+            setDropActive(false);
+        }}
+        onDrop={(e) => {
+          const key = e.dataTransfer.getData(ASSET_DND_MIME);
+          if (!key) return;
+          e.preventDefault();
+          setDropActive(false);
+          const asset = assetByKey(key);
+          if (asset) onAddAsset(asset);
+        }}
+      >
         <IsoScene
           container={focus}
           parts={focus.children ?? []}

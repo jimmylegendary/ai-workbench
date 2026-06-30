@@ -2,7 +2,7 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -10,6 +10,7 @@ import {
   MarkerType,
   ReactFlow,
   ReactFlowProvider,
+  useReactFlow,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -47,6 +48,9 @@ type SavedWorkloadModule = SavedFlowModule<WorkloadNode, WorkloadEdge>;
  */
 
 const nodeTypes: NodeTypes = { harness: OpNode };
+
+/** dataTransfer key carrying the dragged palette kind onto the canvas. */
+const DND_KIND = "application/node-kind";
 
 // Palette — the five harness kinds + their categorical token (OFF status hues).
 const PALETTE: Array<{ kind: HarnessKind; label: string; dot: string }> = [
@@ -201,8 +205,13 @@ export function WorkloadDesign() {
             <button
               key={p.kind}
               type="button"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(DND_KIND, p.kind);
+                e.dataTransfer.effectAllowed = "move";
+              }}
               onClick={() => addNode(p.kind)}
-              className="block w-full rounded-[var(--radius-md)] border border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm"
+              className="block w-full cursor-grab rounded-[var(--radius-md)] border border-border bg-surface p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-text-muted hover:shadow-sm active:cursor-grabbing"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-sm font-medium">
@@ -213,7 +222,7 @@ export function WorkloadDesign() {
                   {p.label}
                 </span>
                 <span className="font-readout text-[9px] uppercase text-text-muted">
-                  + add
+                  drag / +
                 </span>
               </div>
             </button>
@@ -252,35 +261,16 @@ export function WorkloadDesign() {
       {/* ---- center: live React Flow canvas ---- */}
       <section className="relative flex min-h-0 flex-col bg-canvas-bg">
         <ReactFlowProvider>
-          <div className="h-full w-full bg-canvas-bg">
-            <ReactFlow<HarnessFlowNode, Edge>
-              nodes={flowNodes}
-              edges={flowEdges}
-              nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={onNodeClick}
-              onPaneClick={() => select(null)}
-              defaultEdgeOptions={{
-                markerEnd: { type: MarkerType.ArrowClosed },
-              }}
-              nodesDraggable
-              nodesConnectable
-              elementsSelectable
-              fitView
-              proOptions={{ hideAttribution: true }}
-              className="bg-canvas-bg"
-            >
-              <Background
-                variant={BackgroundVariant.Dots}
-                gap={16}
-                size={1}
-                color="var(--canvas-grid)"
-              />
-              <Controls />
-            </ReactFlow>
-          </div>
+          <WorkloadCanvas
+            flowNodes={flowNodes}
+            flowEdges={flowEdges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={() => select(null)}
+            onDropNode={addNode}
+          />
         </ReactFlowProvider>
 
         {nodes.length === 0 && (
@@ -371,6 +361,88 @@ export function WorkloadDesign() {
           </p>
         </div>
       </aside>
+    </div>
+  );
+}
+
+/**
+ * Live React Flow canvas. Lives INSIDE <ReactFlowProvider> so it can call
+ * useReactFlow().screenToFlowPosition to map a palette drop onto flow coords.
+ * Click-to-add stays available from the palette as a fallback; dropping a
+ * palette item adds the node exactly where it landed. Delete/Backspace removes
+ * the selected node(s)/edge(s) (routed through onNodesChange/onEdgesChange).
+ */
+function WorkloadCanvas({
+  flowNodes,
+  flowEdges,
+  onNodesChange,
+  onEdgesChange,
+  onConnect,
+  onNodeClick,
+  onPaneClick,
+  onDropNode,
+}: {
+  flowNodes: HarnessFlowNode[];
+  flowEdges: Edge[];
+  onNodesChange: (changes: NodeChange<HarnessFlowNode>[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onConnect: (c: Connection) => void;
+  onNodeClick: NodeMouseHandler<HarnessFlowNode>;
+  onPaneClick: () => void;
+  onDropNode: (kind: HarnessKind, pos: { x: number; y: number }) => void;
+}) {
+  const { screenToFlowPosition } = useReactFlow();
+
+  const onDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      const kind = e.dataTransfer.getData(DND_KIND) as HarnessKind;
+      if (!kind) return;
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      onDropNode(kind, pos);
+    },
+    [screenToFlowPosition, onDropNode],
+  );
+
+  return (
+    <div
+      className="h-full w-full bg-canvas-bg"
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      <ReactFlow<HarnessFlowNode, Edge>
+        nodes={flowNodes}
+        edges={flowEdges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
+        deleteKeyCode={["Delete", "Backspace"]}
+        defaultEdgeOptions={{
+          markerEnd: { type: MarkerType.ArrowClosed },
+        }}
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+        fitView
+        proOptions={{ hideAttribution: true }}
+        className="bg-canvas-bg"
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={16}
+          size={1}
+          color="var(--canvas-grid)"
+        />
+        <Controls />
+      </ReactFlow>
     </div>
   );
 }
