@@ -12,11 +12,16 @@ import { supabaseConfigured } from "@/lib/supabase/middleware";
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const gated = supabaseConfigured() && process.env.PREVIEW_NO_AUTH !== "1";
   if (gated) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) redirect("/login");
+    let user = null;
+    try {
+      const supabase = await createClient();
+      user = (await supabase.auth.getUser()).data.user;
+    } catch {
+      // Supabase unreachable — fail closed to /login rather than 500-ing the
+      // whole (app) group for everyone.
+      user = null;
+    }
+    if (!user) redirect("/login"); // outside try: redirect()'s internal throw must propagate
   }
 
   return <AppShell>{children}</AppShell>;

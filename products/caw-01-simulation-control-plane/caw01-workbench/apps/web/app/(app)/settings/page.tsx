@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Segmented } from "@/features/settings/components/Segmented";
@@ -21,9 +21,13 @@ type PingState =
 
 /** Workspace settings — real, localStorage-backed (Supabase wiring comes later). */
 export default function SettingsPage() {
-  const hasHydrated = useSettingsStore((s) => s.hasHydrated);
+  // Mount gate: SSR + first client render show the same "Loading" (no hydration
+  // mismatch on persisted values); after mount we render the real form with the
+  // rehydrated store. Bulletproof — never depends on the persist callback.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  if (!hasHydrated) {
+  if (!mounted) {
     return (
       <div className="p-6">
         <h1 className="text-xl font-semibold">Settings</h1>

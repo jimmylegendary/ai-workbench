@@ -23,7 +23,8 @@ function initials(name: string, email: string): string {
 
 /** Account surface — editable profile persisted to the local settings store. */
 export default function UserPage() {
-  const hasHydrated = useSettingsStore((s) => s.hasHydrated);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const profile = useSettingsStore((s) => s.profile);
   const accentColor = useSettingsStore((s) => s.accentColor);
   const setProfile = useSettingsStore((s) => s.setProfile);
@@ -34,12 +35,12 @@ export default function UserPage() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    if (!hasHydrated) return;
+    if (!mounted) return;
     setDisplayName(profile.displayName);
     setEmail(profile.email);
-  }, [hasHydrated, profile.displayName, profile.email]);
+  }, [mounted, profile.displayName, profile.email]);
 
-  if (!hasHydrated) {
+  if (!mounted) {
     return (
       <div className="p-6">
         <h1 className="text-xl font-semibold">User</h1>
