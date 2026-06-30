@@ -55,12 +55,25 @@ export type ServingDesignState = {
   removeEdge: (id: string) => void;
   /** Open a node in the inspector (or clear with null). */
   select: (id: string | null) => void;
+  /** Replace the working graph wholesale (load a saved module back in). The
+   *  sequence counter advances past any loaded `kind-N` id so freshly-added
+   *  nodes never collide with the loaded ones. */
+  loadGraph: (nodes: ServingFlowNode[], edges: ServingFlowEdge[]) => void;
   /** Clear the whole working graph. */
   reset: () => void;
 };
 
 let seq = 0;
 const nextId = (kind: ServingKind) => `${kind}-${++seq}`;
+
+/** Highest trailing integer across a set of `kind-N` ids (0 if none). */
+function maxSeq(ids: string[]): number {
+  return ids.reduce((max, id) => {
+    const m = /(\d+)$/.exec(id);
+    const n = m ? Number(m[1]) : 0;
+    return n > max ? n : max;
+  }, 0);
+}
 
 export const useServingDesignStore = create<ServingDesignState>((set, get) => ({
   nodes: [],
@@ -111,6 +124,11 @@ export const useServingDesignStore = create<ServingDesignState>((set, get) => ({
     set((s) => ({ edges: s.edges.filter((e) => e.id !== id) })),
 
   select: (id) => set({ selectedId: id }),
+
+  loadGraph: (nodes, edges) => {
+    seq = maxSeq(nodes.map((n) => n.id));
+    set({ nodes, edges, selectedId: null });
+  },
 
   reset: () => set({ nodes: [], edges: [], selectedId: null }),
 }));

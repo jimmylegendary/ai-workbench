@@ -328,6 +328,21 @@ const PHY_W = 0.7;
 // arbitrary N parts (extra dies, tensor cores, unknown comps) never pile up.
 const SAT_FIELD = { x0: 168, x1: 832, y0: 372, y1: 556 }; // screen px bounds
 
+// 2.5D Z-STACK (a composed package/die whose children are arbitrary chiplets /
+// dies / io-chips — i.e. NONE of the canonical sm-array/l2/hbm parts are
+// present). The die-shot backdrop is dropped and the children are stacked as
+// physical layers on a FIXED central footprint: each successive child steps UP
+// in z and a touch back/right so they read as soldered/stacked silicon. The
+// per-layer z pitch and back/right stagger scale down with the child count so
+// any N stays inside the canvas; layers are drawn bottom-up (lowest z first).
+const STK_FOOT = { w: 17, d: 15 }; // fixed footprint (floor units)
+const STK_CX = 22.5; //              footprint centre x (screen-centred)
+const STK_CY = 21; //                footprint centre y
+const STK_Z_BASE = 2; //             bottom layer floats just off the ground
+const STK_Z_BUDGET = 360; //         total screen px the stack may rise
+const STK_PITCH_MAX = 30; //         max z per layer (px)
+const STK_PITCH_MIN = 11; //         min z per layer (px)
+
 const num = (s?: string): number | undefined => {
   if (!s) return undefined;
   const n = parseInt(s.replace(/[^\d]/g, ""), 10);
@@ -398,6 +413,10 @@ export function GpuScene({
     else sats.push(p);
   }
 
+  // Canonical die-shot iff at least one of sm-array / l2 / hbm is a real child.
+  // Otherwise this is a composed package/die → render children as a z-stack.
+  const hasCanonical = !!smPart || !!l2Part || !!hbmPart;
+
   const pick = (part: HwTreeNode) => (e: MouseEvent<SVGGElement>) =>
     onPick(part.partId, e.ctrlKey || e.metaKey);
   const down = (part: HwTreeNode | undefined) =>
@@ -450,9 +469,11 @@ export function GpuScene({
   if (smPart) anchorByKey[smPart.partId] = smRearAnchor;
   if (l2Part) anchorByKey[l2Part.partId] = l2Anchor;
   if (hbmPart && hbmAnchors[0]) anchorByKey[hbmPart.partId] = hbmAnchors[0];
-  anchorByKey.sm = smRearAnchor;
-  anchorByKey.l2 = l2Anchor;
-  if (hbmAnchors[0]) anchorByKey.hbm = hbmAnchors[0];
+  if (hasCanonical) {
+    anchorByKey.sm = smRearAnchor;
+    anchorByKey.l2 = l2Anchor;
+    if (hbmAnchors[0]) anchorByKey.hbm = hbmAnchors[0];
+  }
 
   // Satellite parts (any non-canonical child): extra dies, tensor cores, io
   // chips, unknown comps. Placed on a SCREEN-SPACE grid that scales with the
@@ -476,7 +497,7 @@ export function GpuScene({
   const satH = Math.max(2.5, Math.min(7, satW * 1.4));
   const satLabelSize = satN > 16 ? 9 : satN > 8 ? 10 : 11;
 
-  const satViews = sats
+  const satViews = (hasCanonical ? sats : [])
     .map((part, i) => {
       const c = i % satCols;
       const r = Math.floor(i / satCols);
@@ -498,6 +519,29 @@ export function GpuScene({
       return { part, x, y, depth: x + y };
     })
     .sort((a, b) => a.depth - b.depth); // paint back-to-front
+
+  // ---- 2.5D Z-STACK views (composed package/die, no canonical parts) --------
+  // All children become stacked layers on the fixed central footprint; pitch +
+  // stagger shrink with the count so the tower stays framed. Bottom layer first.
+  const stackN = parts.length;
+  const stkPitch = Math.max(STK_PITCH_MIN, Math.min(STK_PITCH_MAX, STK_Z_BUDGET / Math.max(1, stackN)));
+  const stkGap = Math.min(3, stkPitch * 0.18);
+  const stkLayerH = stkPitch - stkGap;
+  const stkStagger = Math.min(1.3, 16 / Math.max(1, stackN - 1)); // back/right step per layer
+  const stkX0 = STK_CX - STK_FOOT.w / 2;
+  const stkY0 = STK_CY - STK_FOOT.d / 2;
+  const stkLabelSize = stackN > 12 ? 10 : 11;
+  const stackViews = (hasCanonical ? [] : parts).map((part, i) => {
+    const o = i - (stackN - 1) / 2; // centre the back/right drift around the footprint
+    const x = stkX0 + stkStagger * o; //        right
+    const y = stkY0 - stkStagger * 0.8 * o; //  back (rear)
+    const z0 = STK_Z_BASE + i * stkPitch;
+    const z1 = z0 + stkLayerH;
+    const center = rectCenter(x, y, STK_FOOT.w, STK_FOOT.d, z1);
+    anchorByKey[part.partId] = center;
+    if (part.comp) anchorByKey[part.comp] = center;
+    return { part, x, y, z0, z1 };
+  });
 
   const containerLinks = (container.links ?? []).flatMap((lk, i) => {
     const a = anchorByKey[lk.from];
@@ -603,6 +647,10 @@ export function GpuScene({
       {/* soft ground shadow under the package */}
       <ellipse cx={500} cy={520} rx={360} ry={90} fill="url(#gpu-floor)" />
 
+      {/* ============================ CANONICAL DIE-SHOT ===================== */}
+      {/* Drawn only when sm-array / l2 / hbm are actual children. */}
+      {hasCanonical && (
+        <>
       {/* ---- package substrate / interposer (furthest, bottom slab) ---- */}
       <BoxFaces x={SUB.x} y={SUB.y} w={SUB.w} d={SUB.d} z0={0} z1={SUB.h} top="url(#g-sub-top)" />
       <BoxBevel x={SUB.x} y={SUB.y} w={SUB.w} d={SUB.d} z1={SUB.h} />
@@ -750,6 +798,61 @@ export function GpuScene({
           <circle key={`tn-s-${i}`} cx={a[0]} cy={a[1]} r={2.2} style={{ fill: "var(--cat-tool)" }} opacity={0.85} />
         ))}
       </g>
+        </>
+      )}
+
+      {/* ============================ 2.5D Z-STACK ========================== */}
+      {/* A composed package/die with arbitrary children — stacked layers, no */}
+      {/* die-shot backdrop. Painted bottom-up (lowest z first). */}
+      {stackViews.map(({ part, x, y, z0, z1 }) => {
+        const sel = isSel(part.partId);
+        const sil = boxSilhouette(x, y, STK_FOOT.w, STK_FOOT.d, z0, z1);
+        const accent = sel ? "var(--accent)" : accentFor(part);
+        const labelAt = pt(x + STK_FOOT.w, y + STK_FOOT.d / 2, (z0 + z1) / 2);
+        const badgeAt = pt(x + STK_FOOT.w, y, z1);
+        const badgeText = part.count && part.count > 1 ? `×${part.count}` : null;
+        const badgeW = badgeText ? 10 + badgeText.length * 7 : 0;
+        return (
+          <g
+            key={part.partId}
+            className="group"
+            style={{ cursor: "pointer" }}
+            onClick={pick(part)}
+            onPointerDown={down(part)}
+            onPointerUp={up(part)}
+          >
+            <polygon points={poly(sil)} fill="transparent" style={{ pointerEvents: "all" }} />
+            <BoxFaces x={x} y={y} w={STK_FOOT.w} d={STK_FOOT.d} z0={z0} z1={z1} />
+            <BoxRidge x={x} y={y} w={STK_FOOT.w} d={STK_FOOT.d} z1={z1} color={accent} />
+            <BoxBevel x={x} y={y} w={STK_FOOT.w} d={STK_FOOT.d} z1={z1} />
+            <RegionFx outlines={[sil]} selected={sel} />
+            <Label
+              x={labelAt[0] + 12}
+              y={labelAt[1] + 4}
+              text={part.name}
+              color={sel ? "var(--canvas-text)" : "var(--canvas-text-muted)"}
+              anchor="start"
+              size={stkLabelSize}
+              bold={sel}
+            />
+            {badgeText && (
+              <g className="pointer-events-none" transform={`translate(${badgeAt[0]}, ${badgeAt[1] - 6})`}>
+                <rect
+                  x={-badgeW / 2}
+                  y={-9}
+                  width={badgeW}
+                  height={17}
+                  rx={8}
+                  fill="#19212b"
+                  style={{ stroke: accent }}
+                  strokeWidth={1}
+                />
+                <Label x={0} y={3} text={badgeText} color="var(--canvas-text)" size={11} bold />
+              </g>
+            )}
+          </g>
+        );
+      })}
 
       {/* ---- explicit typed interconnects from container.links (if any) ---- */}
       {containerLinks.length > 0 && (
@@ -799,7 +902,9 @@ export function GpuScene({
         );
       })}
 
-      {/* ---- tier labels ---- */}
+      {/* ---- tier labels (die-shot only) ---- */}
+      {hasCanonical && (
+        <>
       <Label
         x={pt(SM_REAR.x0, SM_REAR.y0, SM_Z)[0] + 6}
         y={pt(SM_REAR.x0, SM_REAR.y0, SM_Z)[1] - 8}
@@ -839,10 +944,13 @@ export function GpuScene({
           size={11}
         />
       )}
+        </>
+      )}
 
       {/* ---- title + hierarchy legend ---- */}
       <Label x={500} y={30} text={`${container.name}  ·  ${container.level}`} size={15} bold />
 
+      {hasCanonical && (
       <g>
         {[
           { c: "var(--cat-tool)", t: "Tier 0/1 · registers + L1/SMEM (per-SM)" },
@@ -855,6 +963,7 @@ export function GpuScene({
           </g>
         ))}
       </g>
+      )}
     </svg>
   );
 }

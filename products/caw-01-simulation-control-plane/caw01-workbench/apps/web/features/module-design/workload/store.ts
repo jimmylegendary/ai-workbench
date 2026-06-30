@@ -46,8 +46,21 @@ interface WorkloadDesignState {
   updateNode: (id: string, patch: Partial<Pick<WorkloadNode, "label">>) => void;
   /** Inspector selection. */
   select: (id: string | null) => void;
+  /** Replace the working graph wholesale (load a saved module back in). The
+   *  sequence counter is advanced past any existing numeric id so freshly-added
+   *  nodes/edges never collide with the loaded ones. */
+  loadGraph: (nodes: WorkloadNode[], edges: WorkloadEdge[]) => void;
   /** Clear the whole composer. */
   reset: () => void;
+}
+
+/** Highest trailing integer across a set of `kind-N` / `e-N` ids (0 if none). */
+function maxSeq(ids: string[]): number {
+  return ids.reduce((max, id) => {
+    const m = /(\d+)$/.exec(id);
+    const n = m ? Number(m[1]) : 0;
+    return n > max ? n : max;
+  }, 0);
 }
 
 /** Default label per kind for freshly-added palette nodes. */
@@ -111,6 +124,14 @@ export const useWorkloadDesignStore = create<WorkloadDesignState>((set) => ({
     })),
 
   select: (id) => set({ selectedId: id }),
+
+  loadGraph: (nodes, edges) =>
+    set({
+      nodes,
+      edges,
+      selectedId: null,
+      seq: maxSeq([...nodes.map((n) => n.id), ...edges.map((e) => e.id)]),
+    }),
 
   reset: () => set({ nodes: [], edges: [], selectedId: null, seq: 0 }),
 }));

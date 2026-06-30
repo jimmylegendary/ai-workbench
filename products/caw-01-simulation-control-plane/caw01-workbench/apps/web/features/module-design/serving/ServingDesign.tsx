@@ -2,7 +2,7 @@
 
 import "@xyflow/react/dist/style.css";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -24,7 +24,13 @@ import type {
   ServingFlowNode,
   ServingKind,
 } from "@/features/simulation/model/fixtures/c2";
+import {
+  graphModuleRepository,
+  type SavedFlowModule,
+} from "@/features/module-design/model/graphModuleRepository";
 import { useServingDesignStore } from "./store";
+
+type SavedServingModule = SavedFlowModule<ServingFlowNode, ServingFlowEdge>;
 
 /**
  * SERVING MODULE DESIGN — live composer. The working module is an editable graph
@@ -114,10 +120,62 @@ export function ServingDesign() {
   const removeEdge = useServingDesignStore((s) => s.removeEdge);
   const select = useServingDesignStore((s) => s.select);
   const reset = useServingDesignStore((s) => s.reset);
+  const loadGraph = useServingDesignStore((s) => s.loadGraph);
 
   const selected = useMemo(
     () => nodes.find((n) => n.id === selectedId) ?? null,
     [nodes, selectedId],
+  );
+
+  // module name + saved-module library (persisted via graphModuleRepository).
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedMods, setSavedMods] = useState<SavedServingModule[]>([]);
+
+  // ephemeral status banner (no toast lib in this app — keep it self-contained).
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2400);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const refresh = useCallback(() => {
+    graphModuleRepository
+      .list<ServingFlowNode, ServingFlowEdge>("serving")
+      .then(setSavedMods)
+      .catch(() => setSavedMods([]));
+  }, []);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const onSave = useCallback(async () => {
+    if (nodes.length === 0 || saving) return;
+    const moduleName = name.trim() || "Untitled serving stack";
+    setSaving(true);
+    try {
+      const rec = await graphModuleRepository.save<
+        ServingFlowNode,
+        ServingFlowEdge
+      >({ name: moduleName, kind: "serving", graph: { nodes, edges } });
+      setToast(`Saved “${rec.name}”`);
+      setName("");
+      refresh();
+    } catch {
+      setToast("Save failed — please retry");
+    } finally {
+      setSaving(false);
+    }
+  }, [nodes, edges, name, saving, refresh]);
+
+  const onLoad = useCallback(
+    (mod: SavedServingModule) => {
+      loadGraph(mod.graph.nodes, mod.graph.edges);
+      setName(mod.name);
+      setToast(`Loaded “${mod.name}”`);
+    },
+    [loadGraph],
   );
 
   // Decorate store nodes/edges for the controlled React Flow canvas.
@@ -145,7 +203,12 @@ export function ServingDesign() {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
+      {toast && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-[var(--radius-md)] border border-canvas-grid bg-surface px-3 py-1.5 shadow-lg">
+          <span className="font-readout text-xs text-success">{toast}</span>
+        </div>
+      )}
       <header className="flex flex-wrap items-center gap-3 border-b border-border bg-surface px-4 py-2">
         <h1 className="text-sm font-semibold">Serving Module Design</h1>
         <span className="font-readout text-xs text-text-muted">
@@ -159,7 +222,7 @@ export function ServingDesign() {
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)_19rem]">
-        <Palette onAdd={add} />
+        <Palette onAdd={add} saved={savedMods} onLoad={onLoad} />
         <CanvasPane
           empty={nodes.length === 0}
           nodes={rfNodes}
@@ -173,6 +236,10 @@ export function ServingDesign() {
           edges={edges}
           nodes={nodes}
           onRemove={removeNode}
+          name={name}
+          onNameChange={setName}
+          saving={saving}
+          onSave={onSave}
         />
       </div>
     </div>
@@ -181,7 +248,15 @@ export function ServingDesign() {
 
 // ---- left palette ----------------------------------------------------------
 
-function Palette({ onAdd }: { onAdd: (kind: ServingKind, label: string) => void }) {
+function Palette({
+  onAdd,
+  saved,
+  onLoad,
+}: {
+  onAdd: (kind: ServingKind, label: string) => void;
+  saved: SavedServingModule[];
+  onLoad: (mod: SavedServingModule) => void;
+}) {
   return (
     <aside className="flex min-h-0 flex-col border-r border-border bg-surface">
       <div className="border-b border-border px-3 py-2">
@@ -216,6 +291,34 @@ function Palette({ onAdd }: { onAdd: (kind: ServingKind, label: string) => void 
             ))}
           </div>
         ))}
+      </div>
+      <div className="border-t border-border p-3">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          Saved modules
+        </h3>
+        {saved.length === 0 ? (
+          <p className="font-readout text-[10px] text-text-muted">
+            none yet — compose a stack and save it
+          </p>
+        ) : (
+          <ul className="max-h-40 space-y-1 overflow-auto">
+            {saved.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => onLoad(m)}
+                  className="block w-full truncate rounded-[var(--radius-sm)] border border-border bg-surface px-2 py-1 text-left text-xs transition-colors hover:border-text-muted"
+                  title={`Load “${m.name}”`}
+                >
+                  {m.name}
+                  <span className="ml-1 font-readout text-[9px] text-text-muted">
+                    {m.graph.nodes?.length ?? 0}n · {m.graph.edges?.length ?? 0}e
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </aside>
   );
@@ -294,24 +397,20 @@ function Inspector({
   edges,
   nodes,
   onRemove,
+  name,
+  onNameChange,
+  saving,
+  onSave,
 }: {
   selected: ServingFlowNode | null;
   edges: ServingFlowEdge[];
   nodes: ServingFlowNode[];
   onRemove: (id: string) => void;
+  name: string;
+  onNameChange: (name: string) => void;
+  saving: boolean;
+  onSave: () => void;
 }) {
-  const [saved, setSaved] = useState(false);
-
-  const onSave = () => {
-    // stub: a real save would POST the serving graph to the module library.
-    // eslint-disable-next-line no-console
-    console.log("[serving-design] save as serving module (stub):", {
-      nodes,
-      edges,
-    });
-    setSaved(true);
-  };
-
   const nameOf = (id: string) => nodes.find((n) => n.id === id)?.data.label ?? id;
   const invalid = edges.filter((e) => e.data?.valid === false).length;
 
@@ -388,16 +487,21 @@ function Inspector({
         </div>
       </div>
 
-      {/* save stub */}
+      {/* save */}
       <div className="border-t border-border p-3">
-        <div className="flex items-center gap-2">
-          <Button variant="primary" onClick={onSave}>
-            Save as serving module
-          </Button>
-          {saved && (
-            <span className="font-readout text-xs text-success">saved (stub)</span>
-          )}
-        </div>
+        <input
+          className="mb-2 w-full rounded-[var(--radius-sm)] border border-border bg-background px-2 py-1 text-sm"
+          placeholder="Module name"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+        />
+        <Button
+          variant="primary"
+          onClick={onSave}
+          disabled={saving || nodes.length === 0}
+        >
+          {saving ? "Saving…" : "Save as serving module"}
+        </Button>
       </div>
     </aside>
   );

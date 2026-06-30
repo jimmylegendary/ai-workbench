@@ -1,5 +1,10 @@
 import type { PointerEvent, ReactElement } from "react";
-import type { HwTreeNode, TrayKind } from "@/features/simulation/model/fixtures/c3";
+import type {
+  HwLink,
+  HwTreeNode,
+  InterconnectKind,
+  TrayKind,
+} from "@/features/simulation/model/fixtures/c3";
 
 /**
  * RackScene — a PRESENTATIONAL 2.5D rack-elevation renderer for one HW level of
@@ -33,6 +38,36 @@ const EDGE = "#11161d"; // outline stroke (right/bottom shadow direction)
 const DETAIL = "#3b4a5a"; // light grey trim / fan rims / louvers
 const PANEL = "#222c37"; // recessed device-panel inside a tray front
 const BUS_BOLT = "#0c1117"; // deep cavities: holes, ports, bolt seats
+
+/* ----------------------------------------------------------------------- *
+ * Interconnect edge styling (by kind) — mirrors TrayScene/GpuScene. The
+ * categorical --cat-* hues are the reserved EDGE palette here; status hues
+ * and --accent (selection) are never used.
+ * ----------------------------------------------------------------------- */
+interface EdgeStyle {
+  stroke: string;
+  width: number;
+  dash?: string;
+  cap: "round" | "butt";
+}
+function edgeStyle(kind: InterconnectKind): EdgeStyle {
+  switch (kind) {
+    case "nvlink":
+      return { stroke: "var(--cat-llm)", width: 2.6, cap: "round" };
+    case "c2c":
+      return { stroke: "var(--cat-router)", width: 2.2, cap: "round" };
+    case "osfp":
+      return { stroke: "var(--cat-io)", width: 1.8, dash: "5 4", cap: "round" };
+    case "ib":
+    case "ethernet":
+      return { stroke: "var(--cat-io)", width: 1.5, dash: "0.5 4", cap: "round" };
+    case "cxl":
+      return { stroke: "var(--cat-memory)", width: 1.6, dash: "4 3", cap: "round" };
+    case "pcie":
+    default:
+      return { stroke: "var(--cat-router)", width: 1.3, cap: "butt" };
+  }
+}
 
 export function RackScene({
   container,
@@ -80,6 +115,16 @@ export function RackScene({
     cursorY += h + GAP;
     return slot;
   });
+
+  /* ---- per-tray screen anchor (slot footprint centre) + resolved links --- *
+   * Recomputed from `slots` every render so edges follow the trays. A link is
+   * skipped unless BOTH endpoint partIds are placed in this rack. ----------- */
+  const anchors: Record<string, { x: number; y: number }> = {};
+  for (const s of slots) {
+    anchors[s.part.partId] = { x: slotX + slotW / 2, y: s.y + s.h / 2 };
+  }
+  const links: HwLink[] = container.links ?? [];
+  const drawnLinks = links.filter((l) => anchors[l.from] && anchors[l.to]);
 
   /* ---- contiguous trayKind groups → bracket labels ---------------------- */
   type Group = { meta: KindMeta; sum: number; top: number; bottom: number };
@@ -302,10 +347,7 @@ export function RackScene({
           const { part, y, h, meta } = s;
           const selected = part.partId === selectedId;
           const n = weight(part);
-          const spec = primarySpec(part);
           const nameY = h >= 16 ? y + 12 : y + h / 2 + 3;
-          const showSpecLine = h >= 30 && spec !== null;
-          const showSpecInline = !showSpecLine && n <= 1 && h >= 16 && spec !== null;
           const dividers = n > 1 && h >= 30 ? stackLines(y, h, n) : [];
 
           return (
@@ -335,69 +377,6 @@ export function RackScene({
               {dividers.map((ly) => (
                 <line key={ly} x1={slotX + 6} y1={ly} x2={slotX + slotW - 6} y2={ly} stroke="#3b4a5a" strokeWidth={0.6} opacity={0.7} />
               ))}
-
-              {/* name (with dark halo so it stays readable over the panel) */}
-              <text
-                x={slotX + 11}
-                y={nameY}
-                className="font-readout"
-                fontSize={9}
-                fill={selected ? "var(--accent)" : "var(--canvas-text)"}
-                style={{ paintOrder: "stroke" }}
-                stroke={EDGE}
-                strokeWidth={2.5}
-              >
-                {truncate(part.name, showSpecInline ? 14 : n > 1 ? 24 : 30)}
-              </text>
-
-              {/* count badge */}
-              {n > 1 && (
-                <text
-                  x={slotX + slotW - 8}
-                  y={nameY}
-                  className="font-readout"
-                  fontSize={9}
-                  fill="var(--canvas-text-dim)"
-                  textAnchor="end"
-                  style={{ paintOrder: "stroke" }}
-                  stroke={EDGE}
-                  strokeWidth={2.5}
-                >
-                  {`×${n}`}
-                </text>
-              )}
-
-              {/* key spec — second line (tall slots) or inline-right (short) */}
-              {showSpecLine && spec && (
-                <text
-                  x={slotX + 11}
-                  y={y + 24}
-                  className="font-readout"
-                  fontSize={8}
-                  textAnchor="start"
-                  style={{ paintOrder: "stroke" }}
-                  stroke={EDGE}
-                  strokeWidth={2.5}
-                >
-                  <tspan fill="var(--canvas-text-muted)">{spec.key} </tspan>
-                  <tspan fill="var(--canvas-text)">{spec.value}</tspan>
-                </text>
-              )}
-              {showSpecInline && spec && (
-                <text
-                  x={slotX + slotW - 8}
-                  y={nameY}
-                  className="font-readout"
-                  fontSize={8}
-                  textAnchor="end"
-                  style={{ paintOrder: "stroke" }}
-                  stroke={EDGE}
-                  strokeWidth={2.5}
-                >
-                  <tspan fill="var(--canvas-text-muted)">{spec.key} </tspan>
-                  <tspan fill="var(--canvas-text)">{spec.value}</tspan>
-                </text>
-              )}
 
               {/* hover highlight — neutral white wash */}
               <rect
@@ -431,8 +410,141 @@ export function RackScene({
           );
         })
       )}
+
+      {/* interconnect edges — above the trays, below the labels. Anchored at
+          each tray's footprint centre; recomputed from `slots` every render. */}
+      {drawnLinks.map((l, i) => {
+        const a = anchors[l.from];
+        const b = anchors[l.to];
+        const es = edgeStyle(l.kind);
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        return (
+          <g key={`link-${i}-${l.from}-${l.to}`} className="pointer-events-none">
+            {/* drop shadow for legibility over the metal faces */}
+            <line
+              x1={r(a.x)}
+              y1={r(a.y + 1.2)}
+              x2={r(b.x)}
+              y2={r(b.y + 1.2)}
+              stroke="#0b0f14"
+              strokeWidth={es.width + 1.6}
+              strokeLinecap="round"
+              opacity={0.45}
+            />
+            <line
+              x1={r(a.x)}
+              y1={r(a.y)}
+              x2={r(b.x)}
+              y2={r(b.y)}
+              style={{ stroke: es.stroke }}
+              strokeWidth={es.width}
+              strokeDasharray={es.dash}
+              strokeLinecap={es.cap}
+              opacity={0.95}
+            />
+            <circle cx={r(a.x)} cy={r(a.y)} r={2.2} style={{ fill: es.stroke }} stroke="#0b0f14" strokeWidth={0.6} />
+            <circle cx={r(b.x)} cy={r(b.y)} r={2.2} style={{ fill: es.stroke }} stroke="#0b0f14" strokeWidth={0.6} />
+            {l.label && (
+              <text
+                x={r(mx)}
+                y={r(my - 3)}
+                className="font-readout"
+                fontSize={8}
+                textAnchor="middle"
+                style={{ fill: es.stroke, stroke: "#0b0f14", strokeWidth: 3, paintOrder: "stroke" }}
+              >
+                {l.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+
+      {/* tray text labels (on top of the edge layer; clicks fall through to the
+          tray face beneath, so selection is unchanged) */}
+      {slots.map((s) => {
+        const { part, y, h } = s;
+        const selected = part.partId === selectedId;
+        const n = weight(part);
+        const spec = primarySpec(part);
+        const nameY = h >= 16 ? y + 12 : y + h / 2 + 3;
+        const showSpecLine = h >= 30 && spec !== null;
+        const showSpecInline = !showSpecLine && n <= 1 && h >= 16 && spec !== null;
+        return (
+          <g key={`lbl-${part.partId}`} className="pointer-events-none">
+            {/* name (with dark halo so it stays readable over the panel/edges) */}
+            <text
+              x={slotX + 11}
+              y={nameY}
+              className="font-readout"
+              fontSize={9}
+              fill={selected ? "var(--accent)" : "var(--canvas-text)"}
+              style={{ paintOrder: "stroke" }}
+              stroke={EDGE}
+              strokeWidth={2.5}
+            >
+              {truncate(part.name, showSpecInline ? 14 : n > 1 ? 24 : 30)}
+            </text>
+
+            {/* count badge */}
+            {n > 1 && (
+              <text
+                x={slotX + slotW - 8}
+                y={nameY}
+                className="font-readout"
+                fontSize={9}
+                fill="var(--canvas-text-dim)"
+                textAnchor="end"
+                style={{ paintOrder: "stroke" }}
+                stroke={EDGE}
+                strokeWidth={2.5}
+              >
+                {`×${n}`}
+              </text>
+            )}
+
+            {/* key spec — second line (tall slots) or inline-right (short) */}
+            {showSpecLine && spec && (
+              <text
+                x={slotX + 11}
+                y={y + 24}
+                className="font-readout"
+                fontSize={8}
+                textAnchor="start"
+                style={{ paintOrder: "stroke" }}
+                stroke={EDGE}
+                strokeWidth={2.5}
+              >
+                <tspan fill="var(--canvas-text-muted)">{spec.key} </tspan>
+                <tspan fill="var(--canvas-text)">{spec.value}</tspan>
+              </text>
+            )}
+            {showSpecInline && spec && (
+              <text
+                x={slotX + slotW - 8}
+                y={nameY}
+                className="font-readout"
+                fontSize={8}
+                textAnchor="end"
+                style={{ paintOrder: "stroke" }}
+                stroke={EDGE}
+                strokeWidth={2.5}
+              >
+                <tspan fill="var(--canvas-text-muted)">{spec.key} </tspan>
+                <tspan fill="var(--canvas-text)">{spec.value}</tspan>
+              </text>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
+}
+
+/** Round to 2 decimals (keeps the emitted SVG path data compact). */
+function r(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 /* ----------------------------------------------------------------------- *

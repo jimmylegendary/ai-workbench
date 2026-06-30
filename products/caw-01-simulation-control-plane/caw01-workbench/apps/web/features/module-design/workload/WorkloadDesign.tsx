@@ -24,7 +24,17 @@ import {
   type HarnessKind,
 } from "@/features/simulation/model/fixtures/c1";
 import { OpNode } from "@/features/simulation/view/canvases/nodes/OpNode";
-import { useWorkloadDesignStore } from "./store";
+import {
+  graphModuleRepository,
+  type SavedFlowModule,
+} from "@/features/module-design/model/graphModuleRepository";
+import {
+  useWorkloadDesignStore,
+  type WorkloadEdge,
+  type WorkloadNode,
+} from "./store";
+
+type SavedWorkloadModule = SavedFlowModule<WorkloadNode, WorkloadEdge>;
 
 /**
  * WORKLOAD module design composer — compose an agent-turn HARNESS graph
@@ -71,6 +81,7 @@ export function WorkloadDesign() {
   const updateNode = useWorkloadDesignStore((s) => s.updateNode);
   const select = useWorkloadDesignStore((s) => s.select);
   const reset = useWorkloadDesignStore((s) => s.reset);
+  const loadGraph = useWorkloadDesignStore((s) => s.loadGraph);
 
   // ephemeral status banner (no toast lib in this app — keep it self-contained).
   const [toast, setToast] = useState<string | null>(null);
@@ -79,6 +90,21 @@ export function WorkloadDesign() {
     const t = setTimeout(() => setToast(null), 2400);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // module name + saved-module library (persisted via graphModuleRepository).
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<SavedWorkloadModule[]>([]);
+
+  const refresh = useCallback(() => {
+    graphModuleRepository
+      .list<WorkloadNode, WorkloadEdge>("workload")
+      .then(setSaved)
+      .catch(() => setSaved([]));
+  }, []);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   // store graph → React Flow shapes (store stays the single source of truth).
   const flowNodes = useMemo<HarnessFlowNode[]>(
@@ -129,17 +155,34 @@ export function WorkloadDesign() {
     [select],
   );
 
-  const onSave = useCallback(() => {
-    const module = { nodes, edges };
-    // stub: a real save would POST the composed harness to the module library.
-    // eslint-disable-next-line no-console
-    console.log("[workload-design] save as workload module (stub):", module);
-    setToast(
-      `Saved workload module (stub) — ${nodes.length} node${
-        nodes.length === 1 ? "" : "s"
-      }, ${edges.length} edge${edges.length === 1 ? "" : "s"}`,
-    );
-  }, [nodes, edges]);
+  const onSave = useCallback(async () => {
+    if (nodes.length === 0 || saving) return;
+    const moduleName = name.trim() || "Untitled workload";
+    setSaving(true);
+    try {
+      const rec = await graphModuleRepository.save<WorkloadNode, WorkloadEdge>({
+        name: moduleName,
+        kind: "workload",
+        graph: { nodes, edges },
+      });
+      setToast(`Saved “${rec.name}”`);
+      setName("");
+      refresh();
+    } catch {
+      setToast("Save failed — please retry");
+    } finally {
+      setSaving(false);
+    }
+  }, [nodes, edges, name, saving, refresh]);
+
+  const onLoad = useCallback(
+    (mod: SavedWorkloadModule) => {
+      loadGraph(mod.graph.nodes, mod.graph.edges);
+      setName(mod.name);
+      setToast(`Loaded “${mod.name}”`);
+    },
+    [loadGraph],
+  );
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
 
@@ -177,10 +220,32 @@ export function WorkloadDesign() {
           ))}
         </div>
         <div className="border-t border-border p-3">
-          <p className="font-readout text-[10px] leading-relaxed text-text-muted">
-            Drag a node&apos;s right port onto another node&apos;s left port to
-            wire them.
-          </p>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+            Saved modules
+          </h3>
+          {saved.length === 0 ? (
+            <p className="font-readout text-[10px] text-text-muted">
+              none yet — compose a harness and save it
+            </p>
+          ) : (
+            <ul className="max-h-40 space-y-1 overflow-auto">
+              {saved.map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    onClick={() => onLoad(m)}
+                    className="block w-full truncate rounded-[var(--radius-sm)] border border-border bg-surface px-2 py-1 text-left text-xs transition-colors hover:border-text-muted"
+                    title={`Load “${m.name}”`}
+                  >
+                    {m.name}
+                    <span className="ml-1 font-readout text-[9px] text-text-muted">
+                      {m.graph.nodes?.length ?? 0}n · {m.graph.edges?.length ?? 0}e
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </aside>
 
@@ -282,9 +347,19 @@ export function WorkloadDesign() {
         </div>
 
         <div className="border-t border-border p-3">
+          <input
+            className="mb-2 w-full rounded-[var(--radius-sm)] border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Module name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
           <div className="flex items-center gap-2">
-            <Button variant="primary" onClick={onSave}>
-              Save as workload module
+            <Button
+              variant="primary"
+              onClick={onSave}
+              disabled={saving || nodes.length === 0}
+            >
+              {saving ? "Saving…" : "Save as workload module"}
             </Button>
             <Button variant="ghost" onClick={reset} title="clear the composer">
               Clear

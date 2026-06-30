@@ -1,5 +1,9 @@
 import type { PointerEvent } from "react";
-import type { HwTreeNode } from "@/features/simulation/model/fixtures/c3";
+import type {
+  HwLink,
+  HwTreeNode,
+  InterconnectKind,
+} from "@/features/simulation/model/fixtures/c3";
 
 /**
  * RoomScene — a PRESENTATIONAL 2.5D isometric data-center ROOM for one HW level
@@ -72,6 +76,34 @@ const iso = (gx: number, gy: number, gz: number): P => ({
 });
 const r = (n: number): number => Math.round(n * 100) / 100;
 const poly = (...ps: P[]): string => ps.map((p) => `${r(p.x)},${r(p.y)}`).join(" ");
+
+/* ---- interconnect edge styling (by kind) — mirrors TrayScene/GpuScene ----
+ * The categorical --cat-* hues are the reserved EDGE palette here; the status
+ * hues and --accent (selection only) are never used for fabric edges. */
+interface EdgeStyle {
+  stroke: string;
+  width: number;
+  dash?: string;
+  cap: "round" | "butt";
+}
+function edgeStyle(kind: InterconnectKind): EdgeStyle {
+  switch (kind) {
+    case "nvlink":
+      return { stroke: "var(--cat-llm)", width: 2.6, cap: "round" };
+    case "c2c":
+      return { stroke: "var(--cat-router)", width: 2.2, cap: "round" };
+    case "osfp":
+      return { stroke: "var(--cat-io)", width: 1.8, dash: "5 4", cap: "round" };
+    case "ib":
+    case "ethernet":
+      return { stroke: "var(--cat-io)", width: 1.5, dash: "0.5 4", cap: "round" };
+    case "cxl":
+      return { stroke: "var(--cat-memory)", width: 1.6, dash: "4 3", cap: "round" };
+    case "pcie":
+    default:
+      return { stroke: "var(--cat-router)", width: 1.3, cap: "butt" };
+  }
+}
 
 /** The three visible faces of an iso box footprint [gx,gx+dx]×[gy,gy+dy]×[0,h]. */
 function faces(gx: number, gy: number, dx: number, dy: number, h: number) {
@@ -621,6 +653,16 @@ export function RoomScene({
   const cabH = zones ? MC.h : RACK.h;
   const wallH = cabH + 2.8;
 
+  /* per-part screen anchor (footprint centre-top) + resolved interconnects.
+     Recomputed from `slots` each render so edges follow the parts; a link is
+     skipped unless BOTH endpoint partIds are placed in this room. */
+  const anchors: Record<string, P> = {};
+  for (const s of slots) {
+    anchors[s.part.partId] = iso(s.gx + s.dx / 2, s.gy + s.dy / 2, cabH);
+  }
+  const links: HwLink[] = container.links ?? [];
+  const drawnLinks = links.filter((l) => anchors[l.from] && anchors[l.to]);
+
   const minX = -FD * TW - 30;
   const maxX = FW * TW + 30;
   const minY = -wallH * UH - 26;
@@ -988,29 +1030,89 @@ export function RoomScene({
                 h={zones ? MC.h + 0.7 : RACK.h + 0.3}
               />
             )}
+          </g>
+        );
+      })}
 
-            {zones ? (
-              <Label
-                at={{ x: iso(gx, gy, 0).x, y: iso(gx, gy, 0).y - (MC.h + 1.8) * UH }}
-                name={part.name}
-                sub={subLabel(part)}
-                swatch={accent}
-                anchor="start"
-                count={part.count}
-              />
-            ) : (
-              <Label
-                at={{
-                  x: iso(gx + dx / 2, gy + dy, 0).x,
-                  y: iso(gx + dx / 2, gy + dy, 0).y + 18,
-                }}
-                name={part.name}
-                sub={subLabel(part)}
-                anchor="middle"
-                count={part.count}
-              />
+      {/* interconnect edges — above the cabinets, below the labels. Anchored at
+          each part's footprint centre-top; recomputed from `slots` per render. */}
+      {drawnLinks.map((l, i) => {
+        const a = anchors[l.from];
+        const b = anchors[l.to];
+        const es = edgeStyle(l.kind);
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        return (
+          <g key={`link-${i}-${l.from}-${l.to}`} className="pointer-events-none">
+            {/* drop shadow for legibility over the metal faces */}
+            <line
+              x1={r(a.x)}
+              y1={r(a.y + 1.4)}
+              x2={r(b.x)}
+              y2={r(b.y + 1.4)}
+              stroke="#0b0f14"
+              strokeWidth={es.width + 1.6}
+              strokeLinecap="round"
+              opacity={0.45}
+            />
+            <line
+              x1={r(a.x)}
+              y1={r(a.y)}
+              x2={r(b.x)}
+              y2={r(b.y)}
+              style={{ stroke: es.stroke }}
+              strokeWidth={es.width}
+              strokeDasharray={es.dash}
+              strokeLinecap={es.cap}
+              opacity={0.95}
+            />
+            <circle cx={r(a.x)} cy={r(a.y)} r={2.4} style={{ fill: es.stroke }} stroke="#0b0f14" strokeWidth={0.6} />
+            <circle cx={r(b.x)} cy={r(b.y)} r={2.4} style={{ fill: es.stroke }} stroke="#0b0f14" strokeWidth={0.6} />
+            {l.label && (
+              <text
+                x={r(mx)}
+                y={r(my - 4)}
+                className="font-readout"
+                fontSize={8.5}
+                textAnchor="middle"
+                style={{ fill: es.stroke, stroke: "#0b0f14", strokeWidth: 3, paintOrder: "stroke" }}
+              >
+                {l.label}
+              </text>
             )}
           </g>
+        );
+      })}
+
+      {/* part labels (on top of the edge layer; Label is pointer-events-none so
+          clicks fall through to the cabinet faces beneath — selection unchanged) */}
+      {ordered.map((slot) => {
+        const { part, gx, gy, dx, dy } = slot;
+        const accent = zones
+          ? accentFor(part.clusterType)
+          : accentFor(container.clusterType);
+        return zones ? (
+          <Label
+            key={`lbl-${part.partId}`}
+            at={{ x: iso(gx, gy, 0).x, y: iso(gx, gy, 0).y - (MC.h + 1.8) * UH }}
+            name={part.name}
+            sub={subLabel(part)}
+            swatch={accent}
+            anchor="start"
+            count={part.count}
+          />
+        ) : (
+          <Label
+            key={`lbl-${part.partId}`}
+            at={{
+              x: iso(gx + dx / 2, gy + dy, 0).x,
+              y: iso(gx + dx / 2, gy + dy, 0).y + 18,
+            }}
+            name={part.name}
+            sub={subLabel(part)}
+            anchor="middle"
+            count={part.count}
+          />
         );
       })}
 
