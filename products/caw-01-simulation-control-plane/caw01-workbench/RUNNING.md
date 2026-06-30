@@ -42,7 +42,12 @@ deploy.**
    ```
 3. Apply the schema + RLS (Supabase CLI, linked to your project):
    ```bash
-   cd packages/db && supabase db push       # applies migrations/0001_init.sql + 0002_results.sql
+   cd packages/db && supabase db push       # applies migrations/0001..0004 (tables + enums + views + RLS)
+   ```
+   Optional — load example data (3 runs + metric series + example HW/flow modules).
+   Sign in once first (the seed attaches rows to your auth user under RLS):
+   ```bash
+   psql "<your Supabase DB URL>" -f packages/db/seed.sql   # idempotent
    ```
 4. Run it: `pnpm --filter @caw/web dev` → `http://localhost:3000`. Sign in with the
    magic link (email OTP). Without `PREVIEW_NO_AUTH`, the middleware gates all
