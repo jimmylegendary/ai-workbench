@@ -1,20 +1,27 @@
-import type { AgentSession } from "@caw/core";
+import type { AgentSession, TraceAdapter } from "@caw/core";
 import { genericAdapter } from "./genericAdapter";
+import { otelJoinedAdapter } from "./otelJoinedAdapter";
+
+/** Adapters tried in order; the first whose detect() matches wins. The company
+ *  OTel-joined trace (main.jsonl) is tried first, then the generic fallback. */
+const ADAPTERS: TraceAdapter[] = [otelJoinedAdapter, genericAdapter];
 
 /**
  * Parse a trace file's TEXT into a canonical `AgentSession`.
  *
  * Accepts either a single JSON document or JSONL (one JSON value per line,
- * treated as an array), then maps it through the generic adapter. Pure and
- * unit-testable: no I/O, no store access. `filename`, when given, is stamped
- * as the session `source`.
+ * treated as an array), then maps it through the first adapter that recognises
+ * it (OTel-joined main.jsonl → generic fallback). Pure and unit-testable: no
+ * I/O, no store access. `filename`, when given, is stamped as the session
+ * `source`.
  *
  * Throws a clear Error on empty input, unparseable text, or an unrecognised
  * shape (propagated from the adapter).
  */
 export function loadSession(text: string, filename?: string): AgentSession {
   const raw = parseText(text);
-  const session = genericAdapter.parseSession(raw);
+  const adapter = ADAPTERS.find((a) => a.detect(raw)) ?? genericAdapter;
+  const session = adapter.parseSession(raw);
   return filename ? { ...session, source: filename } : session;
 }
 

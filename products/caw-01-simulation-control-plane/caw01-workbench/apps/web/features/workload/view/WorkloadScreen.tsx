@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkloadStore } from "../store";
+import { otelMainExampleJsonl } from "../model/fixtures/otel-main.example";
 import { TurnGraph } from "./TurnGraph";
 import { StepInspector } from "./StepInspector";
 import { TurnTimeline } from "./TurnTimeline";
@@ -69,6 +70,7 @@ export function WorkloadScreen() {
         <SessionLoader
           onFile={loadFromText}
           onExample={loadExample}
+          onOtelExample={() => loadFromText(otelMainExampleJsonl, "main.jsonl")}
           error={error}
           source={session?.source}
         />
@@ -135,11 +137,13 @@ export function WorkloadScreen() {
 function SessionLoader({
   onFile,
   onExample,
+  onOtelExample,
   error,
   source,
 }: {
   onFile: (text: string, filename?: string) => void;
   onExample: () => void;
+  onOtelExample: () => void;
   error: string | null;
   source?: string;
 }) {
@@ -165,13 +169,14 @@ function SessionLoader({
         ) : null}
       </div>
       <p className="text-xs text-text-muted">
-        Load an agent trace (JSON) or explore the example.
+        Load a session trace (JSON / JSONL — incl. OTel-joined main.jsonl) or
+        explore an example.
       </p>
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
           type="file"
-          accept=".json,application/json,text/plain"
+          accept=".json,.jsonl,application/json,application/x-ndjson,text/plain"
           onChange={onChange}
           className="hidden"
         />
@@ -182,8 +187,13 @@ function SessionLoader({
         >
           Load file…
         </Button>
-        <Button variant="ghost" onClick={onExample}>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" className="flex-1" onClick={onExample}>
           Example
+        </Button>
+        <Button variant="ghost" className="flex-1" onClick={onOtelExample}>
+          OTel trace
         </Button>
       </div>
       {error ? (

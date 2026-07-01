@@ -73,10 +73,31 @@ pipeline path the orchestrator runs.
 - Persistence (metadata-only, later): a `trace_session` table (name, source, turn_count, uri-pointer to the
   blob) — the raw session blob is an artifact by URI, per [ADR-0002](../01-decisions/ADR-0002-data-layer.md)/[ADR-0008](../01-decisions/ADR-0008-auth-and-data-supabase.md).
 
+### Real trace schema (confirmed 2026-07) — OTel-joined, per-request
+Agent + litellm + vllm(+lmcache) spans, OTel-collected, **joined per request**. One SESSION = one file set;
+sub-agent calls become separate sessions (no cross-agent link needed yet). `main.jsonl` = light per-request index;
+heavy payloads in side files by `*_ref {file,key}`:
+- **main.jsonl** row: `called_at`(ns), `duration_ns`(ns), `type`(llm|tool), `session_id`, `turn_id`, `uid?`,
+  `request_id?`(null for tools), `promt_tok`, `out_tok`, `chunk_size`, `prefetch_fetch_ns?`, `store_ns?`,
+  `n_prompt_hash_blocks`, `tier_totals`{HBM,DRAM,SSD,MISS}, `token_ids_ref?`, `hash_ref?`(absent w/o lmcache),
+  `raw_ref?`, `tool?`{name,tool_id}, `tool_ref?`.
+- side: **tokens.jsonl**(prompt/output_token_ids), **hashes.jsonl**(prompt/cache/out_hash_ids, hash_loc),
+  **raw.jsonl**(messages, output_text), **tools.jsonl**(name, input, output, duration_ns).
+Within a turn, llm/tool are **not strictly sequential and carry no parent link** → order by `called_at` (temporal).
+Failures effectively absent → status "ok". The **serving-relevant input** (prompt tokens, hash blocks, chunk_size,
+tier residency) is the priority signal for driving the Serving pipeline.
+
+### [ME] — DONE (Phase 2.5)
+- `features/workload/model/otelJoinedAdapter.ts` — dedicated adapter for the schema above → `AgentSession`
+  (llm→server-exec step, tool→client; memory/tier + refs in `step.meta`). Registered first in `loadSession`
+  (detect-based; generic fallback kept). Raw example fixture + "OTel trace" demo button in the viewer.
+- `@caw/core AgentStep.args` broadened to any JSON.
+
 ### [AI] — runbook
-- **Real `TraceAdapter`**: map the actual company trace format → `AgentSession` (using real trace files);
-  confirm turn delimitation, step kinds, timing/token/arg field names, server-call identification.
-- Decide any format-version handling + large-session streaming/perf.
+- **Side-file lazy fetch**: resolve `token_ids_ref/hash_ref/raw_ref/tool_ref` on demand (load prompt/raw/tool io
+  into the inspector) — currently the refs are surfaced in `meta` but not fetched.
+- Confirm/extend the adapter against real files (multi-file session set, large-session perf, any format versions);
+  wire the serving-input fields into the Phase-3 orchestrator.
 
 ---
 
