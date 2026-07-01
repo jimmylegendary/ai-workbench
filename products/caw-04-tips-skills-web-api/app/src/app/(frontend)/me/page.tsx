@@ -69,7 +69,7 @@ function Section({
 }
 
 function ItemRow({ item, t }: { item: ActivityItem; t: Dictionary }) {
-  const href = item.type === 'skills' && item.slug ? `/skills/${item.slug}` : null
+  const href = item.slug && item.type !== 'articles' ? `/${item.type}/${item.slug}` : null
   const inner = (
     <Card className="flex items-start gap-3 p-4">
       <Badge variant="outline">{t.types[item.type]}</Badge>

@@ -7,6 +7,7 @@ import { getEngagement } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
+import { BodyProse } from '@/components/body-prose'
 import { EngagementBar } from '@/components/engagement-bar'
 import { SiteHeader } from '@/components/site-header'
 import { ViewPing } from '@/components/view-ping'
@@ -92,6 +93,8 @@ export default async function SkillDetailPage({
             </dl>
           </Card>
         </div>
+
+        <BodyProse body={skill.body} />
       </main>
     </div>
   )

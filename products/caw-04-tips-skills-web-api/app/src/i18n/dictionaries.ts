@@ -24,6 +24,8 @@ const ko = {
     likes: '좋아요',
     empty: '아직 없습니다.',
   },
+  tipsPage: { title: '팁', subtitle: 'AI를 잘 쓰기 위한 짧은 실전 팁.' },
+  newsPage: { title: '뉴스', subtitle: 'AI 관련 소식과 링크.', source: '출처', visit: '원문 보기' },
   home: {
     title: '스킬',
     subtitle: 'AI 작업을 위한 재사용 가능한 검증된 단위 — 입력·출력·출처.',
@@ -103,6 +105,8 @@ const en: typeof ko = {
     likes: 'Likes',
     empty: 'Nothing yet.',
   },
+  tipsPage: { title: 'Tips', subtitle: 'Short, practical tips for working well with AI.' },
+  newsPage: { title: 'News', subtitle: 'AI-related news and links.', source: 'Source', visit: 'Open original' },
   home: {
     title: 'Skills',
     subtitle: 'Reusable, validated units for working with AI — inputs, outputs, and provenance.',
