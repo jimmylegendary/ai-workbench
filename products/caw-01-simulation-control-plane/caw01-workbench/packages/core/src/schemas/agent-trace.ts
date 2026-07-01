@@ -47,8 +47,8 @@ export const AgentStep = z.object({
   tokensIn: z.number().optional(),
   tokensOut: z.number().optional(),
   costUsd: z.number().optional(),
-  /** free-form call inputs/outputs — kept opaque-but-inspectable. */
-  args: z.record(z.string(), z.unknown()).optional(),
+  /** free-form call inputs — any JSON (object OR scalar, e.g. a prompt string). */
+  args: z.unknown().optional(),
   result: z.unknown().optional(),
   status: StepStatus.default("unknown"),
   meta: z.record(z.string(), z.unknown()).optional(),

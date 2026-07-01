@@ -222,7 +222,17 @@ function toStep(raw: unknown, i: number): AgentStep {
     status: mapStatus(pick(raw, "status", "state", "outcome", "result_status")),
   };
 
-  const parentId = idOf(pick(raw, "parentId", "parent_id", "parent", "parentStep"));
+  const parentId = idOf(
+    pick(
+      raw,
+      "parentId",
+      "parent_id",
+      "parentSpanId",
+      "parent_span_id",
+      "parent",
+      "parentStep",
+    ),
+  );
   if (parentId) step.parentId = parentId;
 
   const next = toStringArray(
@@ -266,10 +276,19 @@ function toStep(raw: unknown, i: number): AgentStep {
   const costUsd = num(pick(raw, "costUsd", "cost_usd", "cost"));
   if (costUsd !== undefined) step.costUsd = costUsd;
 
-  const args = toRecord(
-    pick(raw, "args", "arguments", "input", "inputs", "params", "parameters", "request"),
+  // args = any JSON (object OR scalar, e.g. a prompt string) — do NOT gate on object.
+  const args = pick(
+    raw,
+    "args",
+    "arguments",
+    "input",
+    "inputs",
+    "params",
+    "parameters",
+    "request",
+    "prompt",
   );
-  if (args) step.args = args;
+  if (args !== undefined) step.args = args;
 
   const result = pick(raw, "result", "output", "outputs", "response", "return", "data");
   if (result !== undefined) step.result = result;

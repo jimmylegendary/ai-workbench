@@ -5,7 +5,8 @@ type Tone = "neutral" | "running" | "success" | "danger" | "warning";
 
 const tones: Record<Tone, string> = {
   neutral: "bg-surface-muted text-text-muted",
-  running: "bg-accent/15 text-accent",
+  // run-state hue (blue) — NOT --accent, which is reserved for selection.
+  running: "bg-primary/15 text-primary",
   success: "bg-success/15 text-success",
   danger: "bg-danger/15 text-danger",
   warning: "bg-warning/15 text-warning",

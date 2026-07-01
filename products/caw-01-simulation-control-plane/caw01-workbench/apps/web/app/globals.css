@@ -36,6 +36,7 @@
   --cat-llm: #a855f7;
   --cat-tool: #2dd4bf;
   --cat-memory: #f472b6;
+  --cat-server: #f59e0b;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
@@ -78,6 +79,7 @@
   --color-cat-llm: var(--cat-llm);
   --color-cat-tool: var(--cat-tool);
   --color-cat-memory: var(--cat-memory);
+  --color-cat-server: var(--cat-server);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
