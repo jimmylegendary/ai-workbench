@@ -1,6 +1,12 @@
 # OSS / self-host tool survey — choosing the UI base
 
-- **Status:** decided
+> ⚠️ **HISTORICAL (2026-07-02):** this survey scoped the OLD design — a public-safe, read-only, **static** publisher.
+> CAW-04 was that same day redefined as an **internal interactive platform** (runtime + DB + auth), which invalidates
+> the static/public-safe premise and the Astro+Starlight conclusion below. See
+> [../03-architecture/v2-interactive-platform-decision.md](../03-architecture/v2-interactive-platform-decision.md)
+> for the current decision (Payload 3 + Next.js + shadcn).
+
+- **Status:** superseded (static scope)
 - **Owner:** Jimmy
 - **Last-reviewed:** 2026-07-02
 - **Related:**
