@@ -22,10 +22,19 @@ produces an openable PDF.
   for any claim that did not pass the gate. There is no ungated → engine code path.
 - **Patent-first interlock (slice form):** `P3` (future-device) claims are
   default-denied for *paper* drafting until an interlock is released.
+- **Confidentiality gate (ADR-0007, L6):** CAW-02 `boundary`(public⊂internal⊂confidential)
+  × `visibility`(team|private) labels, inherited verbatim and **fail-closed** (missing
+  label ⇒ confidential/private). Two enforcement points: **ingest classification**
+  (lattice-max over claims → track) and the load-bearing **egress gate** =
+  `decide(artifact, audience)` (total, default-deny) **+ a redaction re-sweep** over
+  every string the engine emitted. A public sink is hard-blocked for non-public content;
+  internal spans are dropped from a public-target assembly *before the engine sees them*;
+  and a synthesized codename the allow-list can't see is still caught at egress.
 - **Ports & adapters + preflight (ADR-0005):** 5 driven ports, a config-driven
   registry, a capability preflight that **refuses to run a documented stub** while active.
-- **Provenance:** `Artifact → GatedClaimSet → ClaimRef → evidence_refs → result_id`
-  is reconstructable in the SQLite ledger.
+- **Provenance + audit:** `Artifact → GatedClaimSet → ClaimRef → evidence_refs → result_id`
+  is reconstructable in the SQLite ledger, and every state transition is recorded in a
+  **hash-chained lifecycle event log** (`caw03 events` → `verify_lifecycle`).
 
 ## Run the slice
 
@@ -61,6 +70,23 @@ python -m caw03 review demo-2026-07
 python -m caw03 status
 ```
 
+### Confidentiality (L6) demos
+
+```bash
+# internal claim, public target → BLOCKED before drafting (no leak reaches the engine)
+python -m caw03 run examples/bundle_internal/bundle.json \
+  --template examples/bundle_demo/template.tex \
+  --guidelines examples/bundle_demo/conference_guidelines.md --audience public
+
+# public-labeled claim that carries a codename → decide() passes, the egress
+# redaction re-sweep BLOCKS it (defense in depth)
+python -m caw03 run examples/bundle_redaction/bundle.json \
+  --template examples/bundle_demo/template.tex \
+  --guidelines examples/bundle_demo/conference_guidelines.md --audience public
+
+python -m caw03 events   # hash-chained lifecycle log + verify_lifecycle
+```
+
 ### Verify (smoke test, stdlib only)
 
 ```bash
@@ -68,8 +94,11 @@ cd products/caw-03-paper-patent-harness/impl
 python -m unittest discover -s tests -v
 ```
 
-The test drives the whole slice in a temp dir and asserts: the gate passes c1/c2 and
-blocks c3, an ungated claim cannot be assembled, and a valid `%PDF` file is produced.
+The tests drive the whole slice in a temp dir and assert: the gate passes c1/c2 and
+blocks c3, an ungated claim cannot be assembled, a valid `%PDF` is produced, the
+confidentiality `decide()` matrix holds, an internal claim is blocked from a public
+assembly, the egress re-sweep catches an embedded codename, and the lifecycle hash
+chain verifies.
 
 ## Swapping in the real writing engine (PaperOrchestra)
 
@@ -111,6 +140,7 @@ caw03/
     models.py   # domain dataclasses + enums (Pydantic-swappable later)
     ledger.py   # SQLite projection over a CAW-02 bundle + provenance
     gate.py     # authoritative evidence gate (+ optional cue vet)
+    confidentiality.py # boundary/visibility labels, decide(), redaction ruleset
     assemble.py # gated claims → engine-neutral inputs (refuses ungated)
     registry.py # config-driven adapter registry + capability preflight
     pdf.py      # dependency-free PDF writer (last-resort renderer)
@@ -122,9 +152,16 @@ caw03/
 examples/bundle_demo/   # a CAW-02-style bundle fixture (gated-passable + a blocked claim)
 ```
 
-## Not built in this slice (by design)
+## Built so far
 
-Patent screening/drafting logic, novelty/radar, the confidentiality tiering +
-public-safe export scrubber, and the API/MCP/UI surfaces are **stubs or absent** —
-they are later runbooks. The slice's job is only to make the gated-claim → PDF spine
-real and correct. See `../design/10-runbooks/`.
+- **Slice spine (L1/L2/L4):** ports+registry+preflight, evidence gate + claim ledger,
+  input assembly, `minimal-latex`/`paperorchestra` engines, gated-claim → PDF.
+- **L6 confidentiality:** boundary/visibility labels, two-point gate (ingest classify +
+  egress `decide()` + redaction re-sweep), fail-closed, hash-chained lifecycle log.
+
+## Not built yet (later runbooks)
+
+Real patent screening/drafting + interlock **release** (L3 — only the P3 gate default-deny
+exists), novelty/radar (L5 — PaperQA2/OpenAlex), and the API/MCP/review-UI surfaces (L8 —
+only the CLI exists). Work order: **L6 (done) → L3(a) interlock → L5 novelty → L3(b) patent
+drafting → L8 surfaces.** See `../design/10-runbooks/`.

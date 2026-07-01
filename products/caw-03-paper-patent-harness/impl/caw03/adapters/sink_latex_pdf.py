@@ -9,6 +9,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from ..core.models import Audience
 from ..core.registry import register
 from ..ports import AdapterCapabilities, HealthStatus, Maturity
 
@@ -20,13 +21,22 @@ class LatexPdfSinkAdapter:
         id="latex-pdf-files",
         version="0.1.0",
         provides=("paper_pdf", "paper_tex"),
-        features=frozenset({"local-files", "public-safe"}),
+        features=frozenset({"local-files"}),
         requires_config=(),
         maturity=Maturity.V1,
     )
+    # A local file drop is an INTERNAL audience; the core runs decide() against this
+    # tier before publish(). A public target must be requested explicitly (and only
+    # passes for a public/team artifact).
+    audience = Audience.INTERNAL
 
     def __init__(self, config: dict | None = None):
         self.config = config or {}
+        if config and config.get("audience"):
+            try:
+                self.audience = Audience(config["audience"])
+            except ValueError:
+                pass
 
     def health(self) -> HealthStatus:
         return HealthStatus.healthy("latex-pdf-files sink ready")

@@ -41,11 +41,66 @@ class GateStatus(str, Enum):
     BLOCKED = "blocked"
 
 
+class Boundary(str, Enum):
+    """Ordered lattice inherited verbatim from CAW-02: public ⊂ internal ⊂ confidential.
+    "Can it leave the building." Effective boundary = lattice-max over selected claims."""
+
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+
+    @property
+    def rank(self) -> int:
+        return {"public": 0, "internal": 1, "confidential": 2}[self.value]
+
+    @classmethod
+    def max(cls, values: "list[Boundary]") -> "Boundary":
+        # Fail-closed: an empty set is confidential, never public.
+        return max(values, key=lambda b: b.rank, default=cls.CONFIDENTIAL)
+
+
+class Visibility(str, Enum):
+    """Unordered axis from CAW-02: team | private. Effective = team iff ALL are team."""
+
+    TEAM = "team"
+    PRIVATE = "private"
+
+    @classmethod
+    def effective(cls, values: "list[Visibility]") -> "Visibility":
+        # Fail-closed: empty or any private ⇒ private.
+        if not values or any(v is cls.PRIVATE for v in values):
+            return cls.PRIVATE
+        return cls.TEAM
+
+
+class Audience(str, Enum):
+    """The target audience a Sink adapter exports to; drives the egress decision."""
+
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    COUNSEL = "counsel"
+
+
+class ConfidentialityTrack(str, Enum):
+    PUBLIC_SOURCE_ASSISTED = "public-source-assisted"
+    INTERNAL_REVIEW_REQUIRED = "internal-review-required"
+
+
+class BlockedReason(str, Enum):
+    """Typed conjunction-gate failure reasons (confidentiality doc §3.2)."""
+
+    EVIDENCE = "EVIDENCE"
+    BOUNDARY = "BOUNDARY"
+    NOVELTY = "NOVELTY"
+    ENGINE = "ENGINE"
+
+
 class Lifecycle(str, Enum):
     """Artifact lifecycle board (ADR-0001)."""
 
     SELECTED = "selected"
     GATED = "gated"
+    BLOCKED = "blocked"
     DRAFTING = "drafting"
     DRAFTED = "drafted"
     IN_REVIEW = "in_review"
@@ -85,6 +140,10 @@ class Claim:
     evidence: list[Evidence] = field(default_factory=list)
     result_refs: list[str] = field(default_factory=list)  # CAW-01 result ids
     gate_status: GateStatus = GateStatus.PENDING
+    # Effective labels computed by CAW-02 and carried in the envelope. Fail-closed:
+    # a claim with no/unresolvable label is treated as confidential/private.
+    boundary: Boundary = Boundary.CONFIDENTIAL
+    visibility: Visibility = Visibility.PRIVATE
 
     def admissible_evidence(self) -> list[Evidence]:
         return [e for e in self.evidence if e.is_admissible()]
@@ -168,7 +227,9 @@ class Artifact:
     type: str                       # "paper" | "patent"
     state: Lifecycle
     gated_set_id: str
-    confidentiality_track: str = "public_safe"
+    confidentiality_track: str = ConfidentialityTrack.INTERNAL_REVIEW_REQUIRED.value
+    boundary: str = Boundary.CONFIDENTIAL.value
+    visibility: str = Visibility.PRIVATE.value
     engine_run_id: str | None = None
     review_id: str | None = None
     output_ref: str | None = None

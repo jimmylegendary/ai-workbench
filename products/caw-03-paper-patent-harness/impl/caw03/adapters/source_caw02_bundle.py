@@ -10,7 +10,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..core.models import Claim, ClaimType, Evidence, EvidenceKind, RawBundle, ResultRef
+from ..core.models import (
+    Boundary,
+    Claim,
+    ClaimType,
+    Evidence,
+    EvidenceKind,
+    RawBundle,
+    ResultRef,
+    Visibility,
+)
 from ..core.registry import register
 from ..ports import AdapterCapabilities, HealthStatus, Maturity
 
@@ -79,6 +88,8 @@ def _parse_bundle(raw: dict) -> RawBundle:
                 statement=str(cd.get("statement", "")),
                 evidence=evidence,
                 result_refs=[str(x) for x in cd.get("result_refs", [])],
+                boundary=_boundary(cd.get("boundary")),
+                visibility=_visibility(cd.get("visibility")),
             )
         )
 
@@ -101,3 +112,19 @@ def _parse_bundle(raw: dict) -> RawBundle:
         signature=raw.get("signature"),
         provenance_manifest=raw.get("provenance_manifest", {}),
     )
+
+
+def _boundary(value) -> Boundary:
+    """Fail-closed: missing/unknown boundary label ⇒ confidential (ADR-0007 invariant 3)."""
+    try:
+        return Boundary(value) if value is not None else Boundary.CONFIDENTIAL
+    except ValueError:
+        return Boundary.CONFIDENTIAL
+
+
+def _visibility(value) -> Visibility:
+    """Fail-closed: missing/unknown visibility label ⇒ private."""
+    try:
+        return Visibility(value) if value is not None else Visibility.PRIVATE
+    except ValueError:
+        return Visibility.PRIVATE

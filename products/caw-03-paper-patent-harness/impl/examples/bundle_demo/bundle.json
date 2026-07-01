@@ -9,6 +9,8 @@
     {
       "claim_id": "c1",
       "type": "P1",
+      "boundary": "public",
+      "visibility": "team",
       "statement": "Our scheduling method reduces p99 serving latency versus the baseline.",
       "result_refs": ["r1"],
       "evidence": [
@@ -23,6 +25,8 @@
     {
       "claim_id": "c2",
       "type": "P2",
+      "boundary": "public",
+      "visibility": "team",
       "statement": "The proposed tool integrates with the existing serving stack without code changes.",
       "result_refs": [],
       "evidence": [
@@ -37,6 +41,8 @@
     {
       "claim_id": "c3",
       "type": "P3",
+      "boundary": "public",
+      "visibility": "team",
       "statement": "A future accelerator design will further cut energy per token.",
       "result_refs": [],
       "evidence": [

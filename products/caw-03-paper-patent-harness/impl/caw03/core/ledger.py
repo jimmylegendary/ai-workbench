@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 
 from .models import (
+    Boundary,
     Claim,
     ClaimType,
     Evidence,
@@ -21,6 +22,7 @@ from .models import (
     Lifecycle,
     RawBundle,
     ResultRef,
+    Visibility,
 )
 
 SCHEMA = """
@@ -40,7 +42,9 @@ CREATE TABLE IF NOT EXISTS claim (
     type TEXT NOT NULL,
     statement TEXT NOT NULL,
     result_refs TEXT NOT NULL DEFAULT '[]',
-    gate_status TEXT NOT NULL DEFAULT 'pending'
+    gate_status TEXT NOT NULL DEFAULT 'pending',
+    boundary TEXT NOT NULL DEFAULT 'confidential',
+    visibility TEXT NOT NULL DEFAULT 'private'
 );
 CREATE TABLE IF NOT EXISTS evidence (
     id TEXT NOT NULL,
@@ -69,11 +73,25 @@ CREATE TABLE IF NOT EXISTS artifact (
     type TEXT NOT NULL,
     state TEXT NOT NULL,
     gated_set_id TEXT NOT NULL,
-    confidentiality_track TEXT NOT NULL DEFAULT 'public_safe',
+    confidentiality_track TEXT NOT NULL DEFAULT 'internal-review-required',
+    boundary TEXT NOT NULL DEFAULT 'confidential',
+    visibility TEXT NOT NULL DEFAULT 'private',
     engine_run_id TEXT,
     review_id TEXT,
     output_ref TEXT,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lifecycle_event (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_id TEXT NOT NULL,
+    from_state TEXT,
+    to_state TEXT NOT NULL,
+    reason TEXT,
+    actor TEXT NOT NULL,
+    detail TEXT,
+    prev_hash TEXT,
+    hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS engine_run (
     id TEXT PRIMARY KEY,
@@ -95,6 +113,11 @@ def canonical_digest(bundle: RawBundle) -> str:
                 "claim_id": c.claim_id,
                 "type": c.type.value,
                 "statement": c.statement,
+                # The confidentiality labels are load-bearing and never re-derived, so
+                # they MUST be covered by the integrity digest — otherwise a flipped
+                # boundary/visibility (confidential→public) would import as digest_ok.
+                "boundary": c.boundary.value,
+                "visibility": c.visibility.value,
                 "evidence": [
                     {"id": e.id, "kind": e.kind.value, "ref": e.ref} for e in c.evidence
                 ],
@@ -161,10 +184,11 @@ class Ledger:
         for c in bundle.claims:
             cur.execute(
                 "INSERT INTO claim "
-                "(claim_id, bundle_id, type, statement, result_refs, gate_status) "
-                "VALUES (?,?,?,?,?,?)",
+                "(claim_id, bundle_id, type, statement, result_refs, gate_status, "
+                " boundary, visibility) VALUES (?,?,?,?,?,?,?,?)",
                 (c.claim_id, bundle.bundle_id, c.type.value, c.statement,
-                 json.dumps(c.result_refs), c.gate_status.value),
+                 json.dumps(c.result_refs), c.gate_status.value,
+                 c.boundary.value, c.visibility.value),
             )
             for e in c.evidence:
                 cur.execute(
@@ -215,6 +239,8 @@ class Ledger:
             evidence=evidence,
             result_refs=json.loads(row["result_refs"]),
             gate_status=GateStatus(row["gate_status"]),
+            boundary=Boundary(row["boundary"]),
+            visibility=Visibility(row["visibility"]),
         )
 
     def get_results(self, bundle_id: str) -> list[ResultRef]:
@@ -277,15 +303,35 @@ class Ledger:
     def upsert_artifact(self, artifact_id: str, type: str, state: Lifecycle,
                         gated_set_id: str, now: str, engine_run_id: str | None = None,
                         review_id: str | None = None, output_ref: str | None = None,
-                        confidentiality_track: str = "public_safe") -> None:
+                        confidentiality_track: str | None = None,
+                        boundary: str | None = None,
+                        visibility: str | None = None) -> None:
+        # On a state-only advance, callers omit labels/refs; preserve the prior values
+        # so a later transition never silently downgrades the classification or loses
+        # the engine output. Fail-closed defaults only when there is no prior row.
+        prev = self.get_artifact(artifact_id) or {}
+
+        def _keep(new, key, closed):
+            return new if new is not None else prev.get(key, closed)
+
         self.conn.execute(
             "INSERT OR REPLACE INTO artifact "
-            "(id, type, state, gated_set_id, confidentiality_track, engine_run_id, "
-            " review_id, output_ref, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (artifact_id, type, state.value, gated_set_id, confidentiality_track,
-             engine_run_id, review_id, output_ref, now),
+            "(id, type, state, gated_set_id, confidentiality_track, boundary, visibility, "
+            " engine_run_id, review_id, output_ref, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (artifact_id, type, state.value, gated_set_id,
+             _keep(confidentiality_track, "confidentiality_track", "internal-review-required"),
+             _keep(boundary, "boundary", "confidential"),
+             _keep(visibility, "visibility", "private"),
+             _keep(engine_run_id, "engine_run_id", None),
+             _keep(review_id, "review_id", None),
+             _keep(output_ref, "output_ref", None), now),
         )
         self.conn.commit()
+
+    def get_artifact(self, artifact_id: str) -> dict | None:
+        r = self.conn.execute("SELECT * FROM artifact WHERE id=?", (artifact_id,)).fetchone()
+        return dict(r) if r else None
 
     def set_artifact_state(self, artifact_id: str, state: Lifecycle, now: str) -> None:
         self.conn.execute(
@@ -299,3 +345,44 @@ class Ledger:
             "SELECT * FROM artifact ORDER BY updated_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- hash-chained lifecycle event log ----------------------------------
+    def append_lifecycle_event(self, artifact_id: str, from_state: str | None,
+                               to_state: str, actor: str, now: str,
+                               reason: str | None = None, detail: dict | None = None) -> str:
+        row = self.conn.execute(
+            "SELECT hash FROM lifecycle_event ORDER BY seq DESC LIMIT 1"
+        ).fetchone()
+        prev_hash = row["hash"] if row else ""
+        detail_json = json.dumps(detail or {}, sort_keys=True)
+        payload = f"{prev_hash}|{artifact_id}|{from_state}|{to_state}|{reason}|{actor}|{detail_json}|{now}"
+        h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        self.conn.execute(
+            "INSERT INTO lifecycle_event "
+            "(artifact_id, from_state, to_state, reason, actor, detail, prev_hash, hash, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (artifact_id, from_state, to_state, reason, actor, detail_json, prev_hash, h, now),
+        )
+        self.conn.commit()
+        return h
+
+    def get_lifecycle_events(self, artifact_id: str | None = None) -> list[dict]:
+        if artifact_id:
+            rows = self.conn.execute(
+                "SELECT * FROM lifecycle_event WHERE artifact_id=? ORDER BY seq",
+                (artifact_id,)).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM lifecycle_event ORDER BY seq").fetchall()
+        return [dict(r) for r in rows]
+
+    def verify_lifecycle(self) -> bool:
+        """Recompute the hash chain across all events; True iff intact."""
+        prev_hash = ""
+        for r in self.conn.execute("SELECT * FROM lifecycle_event ORDER BY seq").fetchall():
+            payload = (f"{prev_hash}|{r['artifact_id']}|{r['from_state']}|{r['to_state']}|"
+                       f"{r['reason']}|{r['actor']}|{r['detail']}|{r['created_at']}")
+            if hashlib.sha256(payload.encode("utf-8")).hexdigest() != r["hash"]:
+                return False
+            prev_hash = r["hash"]
+        return True

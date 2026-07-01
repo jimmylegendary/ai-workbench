@@ -55,9 +55,12 @@ def cmd_gate(args) -> int:
 def cmd_assemble(args) -> int:
     h = _harness(args)
     try:
-        m = h.assemble_inputs(args.bundle_id, args.template, args.guidelines, args.title)
-        print(f"assembled inputs at {m['inputs_dir']}")
+        m = h.assemble_inputs(args.bundle_id, args.template, args.guidelines, args.title,
+                              target_audience=args.audience)
+        print(f"assembled inputs at {m['inputs_dir']}  (target={m['target_audience']})")
         print(f"  claims: {m['provenance']['claim_ids']}")
+        if m.get("excluded_claims"):
+            print(f"  excluded (confidentiality): {m['excluded_claims']}")
         print(f"  result refs: {m['provenance']['result_ids']}")
         print(f"  artifact: {m['artifact_id']}")
         return 0
@@ -72,8 +75,32 @@ def cmd_draft(args) -> int:
         print(f"drafted {d['artifact_id']} via engine={d['engine']} renderer={d['renderer']}")
         print(f"  PDF: {d['paper_pdf']}")
         print(f"  TeX: {d['paper_tex']}")
-        print(f"  published to: {d['published_to']}")
+        print(f"  staged to: {d['staged_to']}")
         return 0
+    finally:
+        h.close()
+
+
+def cmd_publish(args) -> int:
+    h = _harness(args)
+    try:
+        r = h.publish(args.bundle_id, target_audience=args.audience)
+        if r["published"]:
+            print(f"PUBLISHED {r['artifact_id']} → audience={r['audience']}  dest={r['dest']}")
+            print(f"  (egress: confidentiality decide() + redaction re-sweep passed; "
+                  f"ruleset={r['ruleset_version']})")
+            return 0
+        print(f"BLOCKED {r['artifact_id']} at egress ({r['reason']}) → audience={r['audience']}")
+        print(f"  decision: {r['decision']}")
+        if r["redaction_hits"]:
+            print(f"  redaction hits ({r['ruleset_version']}):")
+            for hit in r["redaction_hits"]:
+                print(f"    - {hit['type']}: {hit['span']!r}")
+        if r.get("unscannable"):
+            print(f"  unscannable deliverables (fail-closed): {r['unscannable']}")
+        if r.get("nothing_to_sweep"):
+            print("  nothing to sweep (fail-closed): refused to publish unswept")
+        return 3
     finally:
         h.close()
 
@@ -98,7 +125,22 @@ def cmd_status(args) -> int:
         if not arts:
             print("(no artifacts yet)")
         for a in arts:
-            print(f"  {a['id']}  type={a['type']}  state={a['state']}  output={a.get('output_ref')}")
+            print(f"  {a['id']}  state={a['state']:16} track={a.get('confidentiality_track')} "
+                  f"(b={a.get('boundary')},v={a.get('visibility')})  output={a.get('output_ref')}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_events(args) -> int:
+    h = _harness(args)
+    try:
+        events = h.ledger.get_lifecycle_events()
+        for e in events:
+            reason = f" reason={e['reason']}" if e["reason"] else ""
+            print(f"  #{e['seq']} {e['artifact_id']}  {e['from_state']}→{e['to_state']}  "
+                  f"actor={e['actor']}{reason}")
+        print(f"\nhash chain intact: {h.ledger.verify_lifecycle()}")
         return 0
     finally:
         h.close()
@@ -142,9 +184,16 @@ def cmd_run(args) -> int:
             print("\nNo claim passed the gate — nothing to draft. Slice halts (by design).")
             return 2
 
-        print("\n== assemble ==")
-        m = h.assemble_inputs(bundle_id, args.template, args.guidelines, args.title)
+        print(f"\n== assemble (target={args.audience}) ==")
+        try:
+            m = h.assemble_inputs(bundle_id, args.template, args.guidelines, args.title,
+                                  target_audience=args.audience)
+        except RuntimeError as e:
+            print(f"BLOCKED before drafting: {e}")
+            return 3
         print(f"inputs: {m['inputs_dir']}  claims={m['provenance']['claim_ids']}")
+        if m.get("excluded_claims"):
+            print(f"excluded (confidentiality): {m['excluded_claims']}")
 
         print("\n== draft ==")
         d = h.draft(bundle_id)
@@ -156,10 +205,20 @@ def cmd_run(args) -> int:
         for c in r["checklist"]:
             print(f"  [{'ok' if c['ok'] else 'x'}] {c['item']}")
 
+        print(f"\n== publish (egress gate, audience={args.audience}) ==")
+        p = h.publish(bundle_id, target_audience=args.audience)
+        if p["published"]:
+            print(f"PUBLISHED → {p['dest']}  (decide+redaction passed; ruleset={p['ruleset_version']})")
+        else:
+            print(f"BLOCKED at egress ({p['reason']}): {p['decision']}")
+            for hit in p["redaction_hits"]:
+                print(f"  redaction: {hit['type']} {hit['span']!r}")
+
         backlog = h.blocked_backlog(bundle_id)
         print(f"\nblocked-claim backlog: {backlog or '(none)'}")
-        print(f"\nDONE — gated claim → PDF at: {d['paper_pdf']}")
-        return 0
+        status = "PUBLISHED" if p["published"] else "BLOCKED at egress"
+        print(f"\nDONE — gated claim → PDF at: {d['paper_pdf']}  |  egress: {status}")
+        return 0 if p["published"] else 3
     finally:
         h.close()
 
@@ -181,6 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--template", required=True)
     s.add_argument("--guidelines", required=True)
     s.add_argument("--title", default="CAW-03 Draft")
+    s.add_argument("--audience", default="public", choices=["public", "internal", "counsel"])
     s.set_defaults(func=cmd_assemble)
 
     s = sub.add_parser("draft", help="run the writing engine")
@@ -189,17 +249,27 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("review", help="run the review checklist")
     s.add_argument("bundle_id"); s.set_defaults(func=cmd_review)
 
+    s = sub.add_parser("publish", help="egress gate: confidentiality decide() + redaction re-sweep")
+    s.add_argument("bundle_id")
+    s.add_argument("--audience", default=None, choices=["public", "internal", "counsel"],
+                   help="override the sink's audience tier")
+    s.set_defaults(func=cmd_publish)
+
     s = sub.add_parser("status", help="artifact lifecycle board")
     s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("events", help="hash-chained lifecycle event log + verify")
+    s.set_defaults(func=cmd_events)
 
     s = sub.add_parser("adapters", help="list registered adapters + preflight")
     s.set_defaults(func=cmd_adapters)
 
-    s = sub.add_parser("run", help="full slice: import→gate→assemble→draft→review")
+    s = sub.add_parser("run", help="full slice: import→gate→assemble→draft→review→publish")
     s.add_argument("ref")
     s.add_argument("--template", required=True)
     s.add_argument("--guidelines", required=True)
     s.add_argument("--title", default="CAW-03 Draft")
+    s.add_argument("--audience", default="public", choices=["public", "internal", "counsel"])
     s.set_defaults(func=cmd_run)
 
     return p
