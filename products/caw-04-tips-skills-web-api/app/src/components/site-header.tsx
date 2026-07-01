@@ -13,7 +13,7 @@ export function SiteHeader({
   user?: { email?: string | null; roles?: string[] | null } | null
   t: Dictionary
   locale: Locale
-  active?: 'skills' | 'tips' | 'news'
+  active?: 'skills' | 'tips' | 'news' | 'me'
 }) {
   const roles = ((user?.roles as string[] | undefined) ?? []) as string[]
   const canInvite = roles.some((r) => r === 'admin' || r === 'curator')
@@ -52,6 +52,11 @@ export function SiteHeader({
           <LanguageSwitcher locale={locale} />
           {user ? (
             <>
+              <a href="/me">
+                <Button size="sm" variant={active === 'me' ? 'outline' : 'ghost'}>
+                  {t.common.dashboard}
+                </Button>
+              </a>
               <span className="hidden text-xs text-[var(--color-text-muted)] md:inline">
                 {user.email}
               </span>
