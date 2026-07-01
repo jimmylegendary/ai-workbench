@@ -69,6 +69,19 @@ two-system hybrids (SSO bridge + duplicated content model + split engagement dat
                     Postgres(+FTS)   AI job (Claude -> Article)   listmonk (newsletter)
 ```
 
+## Build progress (2026-07-02)
+
+Implemented in `app/` and verified (Playwright/API): scaffold (Payload 3 + Next.js, SQLite local /
+Postgres prod), DTCG→Tailwind token pipeline, content model (Skills/Tips/News/Articles + engagement),
+engagement (like/favorite/view), i18n (ko default/en), auth flows (invite link → set-password →
+auto-login, password reset, login), personal dashboard `/me`, **agent write API (API key) + `/api/search`**,
+Tips/News/Articles list+detail, cross-type search UI, web authoring (`/new`), and the newsletter + AI
+curation scaffold (`generateDigest`/`sendDigest`, deterministic + Claude/listmonk seams, `pnpm digest`).
+
+Still not wired: real email delivery (adapter/listmonk in prod), scheduled digest (cron/Payload Jobs),
+web-based editing of existing items (create only; edit via admin), richer search (Postgres FTS/Meilisearch),
+view dedup by session.
+
 ## Open items (to pin next)
 
 1. **AI "article/selection" semantics** — cadence + shape (weekly digest of new/top items? topic roundups?). Shapes the Jobs pipeline + newsletter.
