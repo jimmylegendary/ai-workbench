@@ -1,33 +1,43 @@
+import { logoutAction } from '@/app/(frontend)/auth-actions'
 import { Button } from '@/components/ui/button'
-
-const NAV = [
-  { label: 'Skills', href: '/' },
-  { label: 'Tips', href: '/tips' },
-  { label: 'News', href: '/news' },
-]
+import { LanguageSwitcher } from '@/components/language-switcher'
+import type { Locale } from '@/i18n/config'
+import type { Dictionary } from '@/i18n/dictionaries'
 
 export function SiteHeader({
-  userEmail,
-  active = 'Skills',
+  user,
+  t,
+  locale,
+  active = 'skills',
 }: {
-  userEmail?: string | null
-  active?: string
+  user?: { email?: string | null; roles?: string[] | null } | null
+  t: Dictionary
+  locale: Locale
+  active?: 'skills' | 'tips' | 'news'
 }) {
+  const roles = ((user?.roles as string[] | undefined) ?? []) as string[]
+  const canInvite = roles.some((r) => r === 'admin' || r === 'curator')
+  const nav = [
+    { key: 'skills', label: t.nav.skills, href: '/' },
+    { key: 'tips', label: t.nav.tips, href: '/tips' },
+    { key: 'news', label: t.nav.news, href: '/news' },
+  ] as const
+
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-surface/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
         <div className="flex items-center gap-6">
           <a href="/" className="text-sm font-semibold tracking-tight">
-            CAW-04 · <span className="text-[var(--color-primary)]">AI Tips &amp; Skills</span>
+            CAW-04 · <span className="text-[var(--color-primary)]">{t.brand}</span>
           </a>
           <nav className="hidden items-center gap-1 sm:flex">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <a
-                key={n.label}
+                key={n.key}
                 href={n.href}
                 className={
                   'rounded-md px-3 py-1.5 text-sm ' +
-                  (n.label === active
+                  (n.key === active
                     ? 'bg-[var(--color-surface-muted)] font-medium text-text'
                     : 'text-[var(--color-text-muted)] hover:text-text')
                 }
@@ -37,24 +47,40 @@ export function SiteHeader({
             ))}
           </nav>
         </div>
-        {userEmail ? (
-          <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-[var(--color-text-muted)] sm:inline">
-              {userEmail}
-            </span>
-            <a href="/admin">
+
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher locale={locale} />
+          {user ? (
+            <>
+              <span className="hidden text-xs text-[var(--color-text-muted)] md:inline">
+                {user.email}
+              </span>
+              {canInvite ? (
+                <a href="/invite">
+                  <Button size="sm" variant="ghost">
+                    {t.common.invite}
+                  </Button>
+                </a>
+              ) : null}
+              <a href="/admin">
+                <Button size="sm" variant="outline">
+                  {t.common.admin}
+                </Button>
+              </a>
+              <form action={logoutAction}>
+                <Button type="submit" size="sm" variant="ghost">
+                  {t.common.signOut}
+                </Button>
+              </form>
+            </>
+          ) : (
+            <a href="/login">
               <Button size="sm" variant="outline">
-                Admin
+                {t.common.signIn}
               </Button>
             </a>
-          </div>
-        ) : (
-          <a href="/admin">
-            <Button size="sm" variant="outline">
-              Sign in
-            </Button>
-          </a>
-        )}
+          )}
+        </div>
       </div>
     </header>
   )

@@ -4,6 +4,7 @@ import { getPayload } from 'payload'
 import config from '@/payload.config'
 import type { Skill } from '@/payload-types'
 import { emptyEngState, getEngagementMap } from '@/lib/engagement'
+import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -13,6 +14,7 @@ import { SiteHeader } from '@/components/site-header'
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
+  const { locale, t } = await getDict()
   const payload = await getPayload({ config: await config })
   const { user } = await payload.auth({ headers: await nextHeaders() })
   const { docs: skills } = await payload.find({
@@ -30,27 +32,19 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-dvh">
-      <SiteHeader userEmail={user?.email} active="Skills" />
+      <SiteHeader user={user} t={t} locale={locale} active="skills" />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="mb-8">
-          <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">Skills</h1>
-          <p className="mt-1 text-[var(--color-text-muted)]">
-            Reusable, validated units for working with AI — inputs, outputs, and provenance.
-          </p>
+          <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{t.home.title}</h1>
+          <p className="mt-1 text-[var(--color-text-muted)]">{t.home.subtitle}</p>
         </div>
 
         {skills.length === 0 ? (
           <Card className="flex flex-col items-start gap-3">
-            <p className="text-sm text-[var(--color-text-muted)]">
-              No skills yet. Seed sample content with{' '}
-              <code className="rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-mono text-xs">
-                pnpm seed
-              </code>{' '}
-              or create one in the admin.
-            </p>
+            <p className="text-sm text-[var(--color-text-muted)]">{t.home.empty}</p>
             <a href="/admin">
-              <Button size="sm">Open admin</Button>
+              <Button size="sm">{t.home.openAdmin}</Button>
             </a>
           </Card>
         ) : (
@@ -68,9 +62,9 @@ export default async function HomePage() {
                     )}
                   </h2>
                   {skill.provenance?.validated ? (
-                    <Badge variant="public">validated</Badge>
+                    <Badge variant="public">{t.skill.validated}</Badge>
                   ) : (
-                    <Badge variant="outline">draft</Badge>
+                    <Badge variant="outline">{t.skill.draft}</Badge>
                   )}
                 </div>
                 {skill.summary ? (
@@ -81,9 +75,9 @@ export default async function HomePage() {
 
                 {skill.tags && skill.tags.length > 0 ? (
                   <div className="mb-4 flex flex-wrap gap-1.5">
-                    {skill.tags.map((t, i) => (
+                    {skill.tags.map((tag, i) => (
                       <Badge key={i} variant="accent">
-                        {t.tag}
+                        {tag.tag}
                       </Badge>
                     ))}
                   </div>
@@ -99,12 +93,12 @@ export default async function HomePage() {
                   {skill.slug ? (
                     <a href={`/skills/${skill.slug}`}>
                       <Button size="sm" variant="ghost">
-                        View
+                        {t.home.view}
                       </Button>
                     </a>
                   ) : (
                     <Button size="sm" variant="ghost" disabled>
-                      View
+                      {t.home.view}
                     </Button>
                   )}
                 </div>

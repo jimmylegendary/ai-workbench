@@ -1,0 +1,146 @@
+import type { Locale } from './config'
+
+const ko = {
+  brand: 'AI 팁 & 스킬',
+  common: {
+    signIn: '로그인',
+    signOut: '로그아웃',
+    admin: '관리자',
+    invite: '구성원 초대',
+    email: '이메일',
+    password: '비밀번호',
+    confirmPassword: '비밀번호 확인',
+    copy: '복사',
+    copied: '복사됨',
+  },
+  nav: { skills: '스킬', tips: '팁', news: '뉴스' },
+  home: {
+    title: '스킬',
+    subtitle: 'AI 작업을 위한 재사용 가능한 검증된 단위 — 입력·출력·출처.',
+    empty: '아직 스킬이 없습니다. 관리자에서 만들거나 시드하세요.',
+    openAdmin: '관리자 열기',
+    view: '보기',
+  },
+  skill: {
+    back: '← 스킬',
+    inputs: '입력',
+    outputs: '출력',
+    preconditions: '전제조건',
+    provenance: '출처',
+    source: '소스',
+    ref: '참조',
+    validated: '검증됨',
+    draft: '초안',
+    yes: '예',
+    no: '아니오',
+  },
+  auth: {
+    login: {
+      title: '로그인',
+      subtitle: '사내 계정으로 로그인하세요.',
+      submit: '로그인',
+      forgot: '비밀번호를 잊으셨나요?',
+      invalid: '이메일 또는 비밀번호가 올바르지 않습니다.',
+    },
+    forgot: {
+      title: '비밀번호 재설정',
+      subtitle: '이메일을 입력하면 재설정 링크를 보내드립니다.',
+      submit: '재설정 링크 보내기',
+      sent: '해당 계정이 존재하면 재설정 링크를 보냈습니다.',
+      devNote: '개발 모드 재설정 링크:',
+    },
+    setPassword: {
+      title: '비밀번호 설정',
+      subtitle: '새 비밀번호를 설정하면 자동으로 로그인됩니다.',
+      submit: '설정하고 로그인',
+      short: '비밀번호는 8자 이상이어야 합니다.',
+      mismatch: '비밀번호가 일치하지 않습니다.',
+      invalidToken: '링크가 만료되었거나 유효하지 않습니다.',
+      missingToken: '유효하지 않은 초대/재설정 링크입니다.',
+    },
+    invite: {
+      title: '구성원 초대',
+      subtitle: '이메일을 입력해 초대 링크를 생성하세요.',
+      submit: '초대 링크 생성',
+      created: '초대 링크가 생성되었습니다. 링크를 복사해 전달하세요:',
+      forbidden: '권한이 없습니다.',
+      needEmail: '이메일을 입력하세요.',
+    },
+  },
+}
+
+const en: typeof ko = {
+  brand: 'AI Tips & Skills',
+  common: {
+    signIn: 'Sign in',
+    signOut: 'Sign out',
+    admin: 'Admin',
+    invite: 'Invite member',
+    email: 'Email',
+    password: 'Password',
+    confirmPassword: 'Confirm password',
+    copy: 'Copy',
+    copied: 'Copied',
+  },
+  nav: { skills: 'Skills', tips: 'Tips', news: 'News' },
+  home: {
+    title: 'Skills',
+    subtitle: 'Reusable, validated units for working with AI — inputs, outputs, and provenance.',
+    empty: 'No skills yet. Create one in the admin or seed sample content.',
+    openAdmin: 'Open admin',
+    view: 'View',
+  },
+  skill: {
+    back: '← Skills',
+    inputs: 'Inputs',
+    outputs: 'Outputs',
+    preconditions: 'Preconditions',
+    provenance: 'Provenance',
+    source: 'Source',
+    ref: 'Ref',
+    validated: 'validated',
+    draft: 'draft',
+    yes: 'yes',
+    no: 'no',
+  },
+  auth: {
+    login: {
+      title: 'Sign in',
+      subtitle: 'Sign in with your internal account.',
+      submit: 'Sign in',
+      forgot: 'Forgot your password?',
+      invalid: 'Incorrect email or password.',
+    },
+    forgot: {
+      title: 'Reset password',
+      subtitle: 'Enter your email and we will send a reset link.',
+      submit: 'Send reset link',
+      sent: 'If an account exists, a reset link has been sent.',
+      devNote: 'Dev-mode reset link:',
+    },
+    setPassword: {
+      title: 'Set password',
+      subtitle: 'Set a new password — you will be signed in automatically.',
+      submit: 'Set password & sign in',
+      short: 'Password must be at least 8 characters.',
+      mismatch: 'Passwords do not match.',
+      invalidToken: 'This link is invalid or has expired.',
+      missingToken: 'Invalid invite/reset link.',
+    },
+    invite: {
+      title: 'Invite member',
+      subtitle: 'Enter an email to generate an invite link.',
+      submit: 'Generate invite link',
+      created: 'Invite link created. Copy it and share it:',
+      forbidden: 'You do not have permission.',
+      needEmail: 'Please enter an email.',
+    },
+  },
+}
+
+const dictionaries = { ko, en }
+export type Dictionary = typeof ko
+
+export function getDictionary(locale: Locale): Dictionary {
+  return dictionaries[locale] ?? dictionaries.ko
+}
