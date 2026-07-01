@@ -69,19 +69,24 @@ export function WorkloadPanel() {
 
   const [source, setSource] = useState<Source>("pc");
 
-  // Local collapse/expand state — default: the active session + turn expanded.
-  const [openSessions, setOpenSessions] = useState<Set<string>>(new Set());
+  // Master-detail accordion: expanding one pane collapses the other.
+  //   'sessions' → the full sessions/example list is shown, turns preview small.
+  //   'turns'    → the active session's turns fill the pane, session list hides.
+  const [focus, setFocus] = useState<"sessions" | "turns">("sessions");
+  // Which turns show their step list.
   const [openTurns, setOpenTurns] = useState<Set<string>>(new Set());
 
-  // Keep the active session/turn revealed as loads/selections change (without
-  // clobbering any manual collapse/expand the user has already done elsewhere).
-  useEffect(() => {
-    if (activeSessionId) {
-      setOpenSessions((prev) =>
-        prev.has(activeSessionId) ? prev : new Set(prev).add(activeSessionId),
-      );
-    }
-  }, [activeSessionId]);
+  const activeSession = sessions.find((x) => x.id === activeSessionId) ?? null;
+  const activeTurn =
+    activeSession?.turns.find((t) => t.id === activeTurnId) ?? null;
+  const selectedStep =
+    activeTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
+
+  const loadedSources = new Set(
+    sessions.map((s) => s.source).filter((v): v is string => v != null),
+  );
+
+  // Reveal the active turn's steps when it changes.
   useEffect(() => {
     if (activeTurnId) {
       setOpenTurns((prev) =>
@@ -90,13 +95,6 @@ export function WorkloadPanel() {
     }
   }, [activeTurnId]);
 
-  const toggleSession = (id: string) =>
-    setOpenSessions((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   const toggleTurn = (id: string) =>
     setOpenTurns((prev) => {
       const next = new Set(prev);
@@ -105,16 +103,14 @@ export function WorkloadPanel() {
       return next;
     });
 
-  const activeTurn =
-    sessions
-      .find((x) => x.id === activeSessionId)
-      ?.turns.find((t) => t.id === activeTurnId) ?? null;
-  const selectedStep =
-    activeTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
+  // Selecting a session activates it (+ its first turn) and expands the turns pane.
+  const selectSession = (s: AgentSession) => {
+    selectTurn(s.id, s.turns[0]?.id ?? "");
+    setFocus("turns");
+  };
 
-  const loadedSources = new Set(
-    sessions.map((s) => s.source).filter((v): v is string => v != null),
-  );
+  // With nothing active, always show the sessions pane.
+  const effectiveFocus: "sessions" | "turns" = activeSession ? focus : "sessions";
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface">
@@ -185,40 +181,164 @@ export function WorkloadPanel() {
         <ExampleTraces loadedSources={loadedSources} onLoad={loadFromText} />
       </div>
 
-      {/* 2. SESSIONS TREE ------------------------------------------------- */}
-      <div className="min-h-0 flex-1 overflow-auto p-2">
-        {sessions.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-text-muted">
-            No trace loaded — pick an example or load a file above.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {sessions.map((session) => (
-              <li key={session.id}>
-                <SessionNode
-                  session={session}
-                  open={openSessions.has(session.id)}
-                  onToggle={() => toggleSession(session.id)}
-                  onRemove={() => removeSession(session.id)}
-                  openTurns={openTurns}
-                  onToggleTurn={toggleTurn}
-                  activeTurnId={
-                    activeSessionId === session.id ? activeTurnId : null
-                  }
-                  selectedStepId={selectedStepId}
-                  onSelectTurn={(turnId) => selectTurn(session.id, turnId)}
-                  onSelectStep={selectStep}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* 2. ACCORDION: Sessions ⇄ Turns (expanding one collapses the other) - */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Pane 1 — sessions list */}
+        <SectionHeader
+          label={`Sessions${sessions.length ? ` · ${sessions.length}` : ""}`}
+          open={effectiveFocus === "sessions"}
+          onClick={() => setFocus("sessions")}
+        />
+        {effectiveFocus === "sessions" ? (
+          <div className="min-h-0 flex-1 overflow-auto p-2">
+            {sessions.length === 0 ? (
+              <p className="px-2 py-6 text-center text-xs text-text-muted">
+                No trace loaded — pick an example or load a file above.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {sessions.map((session) => (
+                  <li key={session.id}>
+                    <SessionRow
+                      session={session}
+                      active={session.id === activeSessionId}
+                      onSelect={() => selectSession(session)}
+                      onRemove={() => removeSession(session.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+
+        {/* Pane 2 — turns of the active session */}
+        <SectionHeader
+          label={
+            activeSession
+              ? `${activeSession.source ?? activeSession.id} · ${activeSession.turns.length} turn${activeSession.turns.length === 1 ? "" : "s"}`
+              : "Turns"
+          }
+          open={effectiveFocus === "turns"}
+          onClick={() => activeSession && setFocus("turns")}
+          disabled={!activeSession}
+        />
+        <div
+          className={cn(
+            "overflow-auto p-2",
+            effectiveFocus === "turns"
+              ? "min-h-0 flex-1"
+              : "max-h-44 shrink-0", // small preview while the sessions list is expanded
+          )}
+        >
+          {!activeSession ? (
+            <p className="px-2 py-3 text-center text-[11px] text-text-muted">
+              Select a session to see its turns.
+            </p>
+          ) : activeSession.turns.length === 0 ? (
+            <p className="px-2 py-3 text-[11px] text-text-muted">No turns.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {activeSession.turns.map((turn) => (
+                <li key={turn.id}>
+                  <TurnNode
+                    turn={turn}
+                    active={turn.id === activeTurnId}
+                    open={openTurns.has(turn.id)}
+                    onToggle={() => toggleTurn(turn.id)}
+                    onSelect={() => selectTurn(activeSession.id, turn.id)}
+                    selectedStepId={selectedStepId}
+                    onSelectStep={selectStep}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* 3. STEP INSPECTOR ------------------------------------------------ */}
-      <div className="max-h-[45%] min-h-0 shrink-0 overflow-auto border-t border-border">
+      <div className="max-h-[40%] min-h-0 shrink-0 overflow-auto border-t border-border">
         <StepInspector step={selectedStep} />
       </div>
+    </div>
+  );
+}
+
+/** Collapsible accordion section header (chevron + label; click toggles focus). */
+function SectionHeader({
+  label,
+  open,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  open: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-expanded={open}
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-1 text-left font-readout text-[10px] uppercase tracking-wide transition-colors",
+        disabled
+          ? "cursor-default text-text-muted/50"
+          : open
+            ? "text-text"
+            : "text-text-muted hover:text-text",
+      )}
+    >
+      <Chevron open={open} />
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+/** One loaded session in the sessions list (click selects; × removes). */
+function SessionRow({
+  session,
+  active,
+  onSelect,
+  onRemove,
+}: {
+  session: AgentSession;
+  active: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 rounded-[var(--radius-md)] border px-1.5 py-1.5",
+        active
+          ? "border-accent bg-accent/10"
+          : "border-border hover:bg-surface-muted",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+      >
+        <span className="truncate text-xs font-medium text-text">
+          {session.source ?? session.id}
+        </span>
+        <span className="ml-auto shrink-0 font-readout text-[10px] text-text-muted tabular-nums">
+          {session.turns.length} turn{session.turns.length === 1 ? "" : "s"}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove session"
+        className="shrink-0 rounded-[var(--radius-sm)] px-1 font-readout text-xs text-text-muted hover:bg-surface-muted hover:text-text"
+      >
+        ×
+      </button>
     </div>
   );
 }
@@ -282,82 +402,7 @@ function ExampleTraces({
   );
 }
 
-/* --- sessions tree ------------------------------------------------------- */
-
-function SessionNode({
-  session,
-  open,
-  onToggle,
-  onRemove,
-  openTurns,
-  onToggleTurn,
-  activeTurnId,
-  selectedStepId,
-  onSelectTurn,
-  onSelectStep,
-}: {
-  session: AgentSession;
-  open: boolean;
-  onToggle: () => void;
-  onRemove: () => void;
-  openTurns: Set<string>;
-  onToggleTurn: (id: string) => void;
-  activeTurnId: string | null;
-  selectedStepId: string | null;
-  onSelectTurn: (turnId: string) => void;
-  onSelectStep: (id: string | null) => void;
-}) {
-  return (
-    <div className="rounded-[var(--radius-md)] border border-border">
-      <div className="flex items-center gap-1 px-1.5 py-1">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-        >
-          <Chevron open={open} />
-          <span className="truncate text-xs font-medium text-text">
-            {session.source ?? session.id}
-          </span>
-          <span className="ml-auto shrink-0 font-readout text-[10px] text-text-muted tabular-nums">
-            {session.turns.length} turn{session.turns.length === 1 ? "" : "s"}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          title="Remove session"
-          className="shrink-0 rounded-[var(--radius-sm)] px-1 font-readout text-xs text-text-muted hover:bg-surface-muted hover:text-text"
-        >
-          ×
-        </button>
-      </div>
-
-      {open ? (
-        session.turns.length === 0 ? (
-          <p className="px-3 py-2 text-[11px] text-text-muted">No turns.</p>
-        ) : (
-          <ul className="flex flex-col gap-0.5 border-t border-border p-1">
-            {session.turns.map((turn) => (
-              <li key={turn.id}>
-                <TurnNode
-                  turn={turn}
-                  active={turn.id === activeTurnId}
-                  open={openTurns.has(turn.id)}
-                  onToggle={() => onToggleTurn(turn.id)}
-                  onSelect={() => onSelectTurn(turn.id)}
-                  selectedStepId={selectedStepId}
-                  onSelectStep={onSelectStep}
-                />
-              </li>
-            ))}
-          </ul>
-        )
-      ) : null}
-    </div>
-  );
-}
+/* --- turns of the active session ---------------------------------------- */
 
 function TurnNode({
   turn,
