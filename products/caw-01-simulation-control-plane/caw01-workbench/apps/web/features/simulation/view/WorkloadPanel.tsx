@@ -352,6 +352,7 @@ function ExampleTraces({
   loadedSources: Set<string>;
   onLoad: (text: string, filename?: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   if (otelExamples.length === 0) {
     return (
       <div className="mt-2">
@@ -361,9 +362,17 @@ function ExampleTraces({
   }
   return (
     <div className="mt-2">
-      <span className="font-readout text-[10px] uppercase tracking-wide text-text-muted">
-        Example traces
-      </span>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 text-left font-readout text-[10px] uppercase tracking-wide text-text-muted hover:text-text"
+      >
+        <Chevron open={open} />
+        <span>Example traces</span>
+        <span className="ml-auto tabular-nums">{otelExamples.length}</span>
+      </button>
+      {!open ? null : (
       <ul className="mt-1 flex flex-col gap-1">
         {otelExamples.map((ex) => {
           const loaded = loadedSources.has(exampleFilename(ex));
@@ -398,6 +407,7 @@ function ExampleTraces({
           );
         })}
       </ul>
+      )}
     </div>
   );
 }
