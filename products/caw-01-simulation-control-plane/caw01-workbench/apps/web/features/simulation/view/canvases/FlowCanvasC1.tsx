@@ -19,15 +19,16 @@ export function FlowCanvasC1() {
   const selection = useWorkbenchStore((s) => s.selection);
   const select = useWorkbenchStore((s) => s.select);
 
-  const session = useWorkloadStore((s) => s.session);
-  const selectedTurnId = useWorkloadStore((s) => s.selectedTurnId);
+  const sessions = useWorkloadStore((s) => s.sessions);
+  const activeSessionId = useWorkloadStore((s) => s.activeSessionId);
+  const activeTurnId = useWorkloadStore((s) => s.activeTurnId);
   const selectedStepId = useWorkloadStore((s) => s.selectedStepId);
   const selectStep = useWorkloadStore((s) => s.selectStep);
 
-  const selectedTurn = useMemo(
-    () => session?.turns.find((t) => t.id === selectedTurnId) ?? null,
-    [session, selectedTurnId],
-  );
+  const selectedTurn = useMemo(() => {
+    const sess = sessions.find((x) => x.id === activeSessionId);
+    return sess?.turns.find((t) => t.id === activeTurnId) ?? null;
+  }, [sessions, activeSessionId, activeTurnId]);
 
   const [view, setView] = useState<"graph" | "timeline">("graph");
 

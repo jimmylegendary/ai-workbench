@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   summariseTurn,
+  type AgentSession,
   type AgentStep,
   type AgentTurn,
   type TurnSummary,
@@ -33,16 +34,17 @@ function exampleFilename(ex: OtelExample): string {
 /* ----------------------------------------------------------------------- *
  * WorkloadPanel — the right rail shown when the Workload / C1 tab is active.
  *
- * A compact, self-contained rail (matching the ServingOptions idiom) with:
- *   1. a trace SOURCE selector (PC | Server | Supabase),
- *   2. the loader for the chosen source,
- *   3. the turn list (from the shared Workload store),
- *   4. the selected step inspector below.
+ * A compact, self-contained rail (matching the ServingOptions idiom):
+ *   1. TOP — a fixed LOADER block (never shifts on load): a trace SOURCE
+ *      selector (PC | Server | Supabase) + the chosen sub-loader, a Reset
+ *      button, and an "Example traces" row.
+ *   2. BELOW — a collapsible SESSIONS → TURNS → STEPS tree from the store.
+ *   3. the selected step inspector at the bottom.
  *
- * The store (Agent 1) is the single source of truth; loads funnel through
- * loadFromText so parse failures surface in the store's `error`. Server/Supabase
- * reads go through server actions that never throw — their messages land in a
- * small local note.
+ * The store (Agent 1) holds any number of loaded sessions and is the single
+ * source of truth; loads funnel through loadFromText so parse failures surface
+ * in the store's `error`. Nothing is loaded at startup — the tree shows an
+ * empty state until an example/file is loaded, and Reset clears everything.
  * ----------------------------------------------------------------------- */
 
 type Source = "pc" | "server" | "supabase";
@@ -54,32 +56,65 @@ const SOURCES: { v: Source; label: string }[] = [
 ];
 
 export function WorkloadPanel() {
-  const session = useWorkloadStore((s) => s.session);
-  const selectedTurnId = useWorkloadStore((s) => s.selectedTurnId);
+  const sessions = useWorkloadStore((s) => s.sessions);
+  const activeSessionId = useWorkloadStore((s) => s.activeSessionId);
+  const activeTurnId = useWorkloadStore((s) => s.activeTurnId);
   const selectedStepId = useWorkloadStore((s) => s.selectedStepId);
   const error = useWorkloadStore((s) => s.error);
   const loadFromText = useWorkloadStore((s) => s.loadFromText);
-  const loadExample = useWorkloadStore((s) => s.loadExample);
   const selectTurn = useWorkloadStore((s) => s.selectTurn);
   const selectStep = useWorkloadStore((s) => s.selectStep);
+  const removeSession = useWorkloadStore((s) => s.removeSession);
+  const reset = useWorkloadStore((s) => s.reset);
 
   const [source, setSource] = useState<Source>("pc");
 
-  // Seed the first bundled OTel example once if nothing has been loaded yet, so
-  // the default demo arrives in the user's real (OTel) format.
-  useEffect(() => {
-    if (session) return;
-    const first = otelExamples[0];
-    if (first) {
-      loadFromText(exampleJsonl(first), exampleFilename(first));
-    } else {
-      loadExample();
-    }
-  }, [session, loadFromText, loadExample]);
+  // Local collapse/expand state — default: the active session + turn expanded.
+  const [openSessions, setOpenSessions] = useState<Set<string>>(new Set());
+  const [openTurns, setOpenTurns] = useState<Set<string>>(new Set());
 
-  const selectedTurn = session?.turns.find((t) => t.id === selectedTurnId) ?? null;
+  // Keep the active session/turn revealed as loads/selections change (without
+  // clobbering any manual collapse/expand the user has already done elsewhere).
+  useEffect(() => {
+    if (activeSessionId) {
+      setOpenSessions((prev) =>
+        prev.has(activeSessionId) ? prev : new Set(prev).add(activeSessionId),
+      );
+    }
+  }, [activeSessionId]);
+  useEffect(() => {
+    if (activeTurnId) {
+      setOpenTurns((prev) =>
+        prev.has(activeTurnId) ? prev : new Set(prev).add(activeTurnId),
+      );
+    }
+  }, [activeTurnId]);
+
+  const toggleSession = (id: string) =>
+    setOpenSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleTurn = (id: string) =>
+    setOpenTurns((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const activeTurn =
+    sessions
+      .find((x) => x.id === activeSessionId)
+      ?.turns.find((t) => t.id === activeTurnId) ?? null;
   const selectedStep =
-    selectedTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
+    activeTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
+
+  const loadedSources = new Set(
+    sessions.map((s) => s.source).filter((v): v is string => v != null),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface">
@@ -87,49 +122,47 @@ export function WorkloadPanel() {
         <span className="font-readout text-[10px] uppercase tracking-wide text-text-muted">
           Workload · trace
         </span>
-        {session?.source ? (
-          <span
-            className="font-readout text-[10px] text-text-muted"
-            title={session.source}
-          >
-            {session.source}
-          </span>
-        ) : null}
+        <span className="font-readout text-[10px] text-text-muted tabular-nums">
+          {sessions.length} loaded
+        </span>
       </div>
 
-      {/* EXAMPLE TRACES --------------------------------------------------- */}
-      <ExampleTraces
-        currentSource={session?.source ?? null}
-        onLoad={loadFromText}
-        onCanonical={loadExample}
-      />
-
-      {/* SOURCE selector -------------------------------------------------- */}
+      {/* 1. LOADER BLOCK (always at the very top) ------------------------- */}
       <div className="shrink-0 border-b border-border p-2">
-        <div
-          role="tablist"
-          aria-label="Trace source"
-          className="inline-flex w-full rounded-[var(--radius-md)] border border-border p-0.5"
-        >
-          {SOURCES.map((o) => {
-            const active = o.v === source;
-            return (
-              <button
-                key={o.v}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setSource(o.v)}
-                className={cn(
-                  "flex-1 rounded-[var(--radius-sm)] px-2 py-1 font-readout text-[11px] font-medium transition-colors",
-                  active
-                    ? "bg-surface-muted text-text"
-                    : "text-text-muted hover:text-text",
-                )}
-              >
-                {o.label}
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between">
+          <div
+            role="tablist"
+            aria-label="Trace source"
+            className="inline-flex rounded-[var(--radius-md)] border border-border p-0.5"
+          >
+            {SOURCES.map((o) => {
+              const on = o.v === source;
+              return (
+                <button
+                  key={o.v}
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setSource(o.v)}
+                  className={cn(
+                    "rounded-[var(--radius-sm)] px-2 py-1 font-readout text-[11px] font-medium transition-colors",
+                    on
+                      ? "bg-surface-muted text-text"
+                      : "text-text-muted hover:text-text",
+                  )}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+          <Button
+            variant="ghost"
+            onClick={reset}
+            disabled={sessions.length === 0 && !error}
+            title="Clear all loaded sessions"
+          >
+            Reset
+          </Button>
         </div>
 
         <div className="mt-2">
@@ -147,18 +180,42 @@ export function WorkloadPanel() {
             <Badge tone="danger">{error}</Badge>
           </div>
         ) : null}
+
+        {/* Example traces */}
+        <ExampleTraces loadedSources={loadedSources} onLoad={loadFromText} />
       </div>
 
-      {/* TURN LIST -------------------------------------------------------- */}
+      {/* 2. SESSIONS TREE ------------------------------------------------- */}
       <div className="min-h-0 flex-1 overflow-auto p-2">
-        <TurnList
-          turns={session?.turns ?? []}
-          selectedTurnId={selectedTurnId}
-          onSelect={selectTurn}
-        />
+        {sessions.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-text-muted">
+            No trace loaded — pick an example or load a file above.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {sessions.map((session) => (
+              <li key={session.id}>
+                <SessionNode
+                  session={session}
+                  open={openSessions.has(session.id)}
+                  onToggle={() => toggleSession(session.id)}
+                  onRemove={() => removeSession(session.id)}
+                  openTurns={openTurns}
+                  onToggleTurn={toggleTurn}
+                  activeTurnId={
+                    activeSessionId === session.id ? activeTurnId : null
+                  }
+                  selectedStepId={selectedStepId}
+                  onSelectTurn={(turnId) => selectTurn(session.id, turnId)}
+                  onSelectStep={selectStep}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* STEP INSPECTOR --------------------------------------------------- */}
+      {/* 3. STEP INSPECTOR ------------------------------------------------ */}
       <div className="max-h-[45%] min-h-0 shrink-0 overflow-auto border-t border-border">
         <StepInspector step={selectedStep} />
       </div>
@@ -169,61 +226,281 @@ export function WorkloadPanel() {
 /* --- example traces ------------------------------------------------------ */
 
 function ExampleTraces({
-  currentSource,
+  loadedSources,
   onLoad,
-  onCanonical,
 }: {
-  currentSource: string | null;
+  loadedSources: Set<string>;
   onLoad: (text: string, filename?: string) => void;
-  onCanonical: () => void;
+}) {
+  if (otelExamples.length === 0) {
+    return (
+      <div className="mt-2">
+        <Note text="No bundled examples." />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <span className="font-readout text-[10px] uppercase tracking-wide text-text-muted">
+        Example traces
+      </span>
+      <ul className="mt-1 flex flex-col gap-1">
+        {otelExamples.map((ex) => {
+          const loaded = loadedSources.has(exampleFilename(ex));
+          return (
+            <li key={ex.id}>
+              <button
+                type="button"
+                title={ex.description}
+                onClick={() => onLoad(exampleJsonl(ex), exampleFilename(ex))}
+                className={cn(
+                  "w-full rounded-[var(--radius-md)] border px-2.5 py-1 text-left transition-colors",
+                  loaded
+                    ? "border-border bg-surface-muted"
+                    : "border-transparent hover:bg-surface-muted",
+                )}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-xs font-medium text-text">
+                    {ex.label}
+                  </span>
+                  {loaded ? (
+                    <span className="font-readout text-[9px] text-text-muted">
+                      loaded
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block truncate font-readout text-[10px] text-text-muted">
+                  {ex.description}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/* --- sessions tree ------------------------------------------------------- */
+
+function SessionNode({
+  session,
+  open,
+  onToggle,
+  onRemove,
+  openTurns,
+  onToggleTurn,
+  activeTurnId,
+  selectedStepId,
+  onSelectTurn,
+  onSelectStep,
+}: {
+  session: AgentSession;
+  open: boolean;
+  onToggle: () => void;
+  onRemove: () => void;
+  openTurns: Set<string>;
+  onToggleTurn: (id: string) => void;
+  activeTurnId: string | null;
+  selectedStepId: string | null;
+  onSelectTurn: (turnId: string) => void;
+  onSelectStep: (id: string | null) => void;
 }) {
   return (
-    <div className="shrink-0 border-b border-border p-2">
-      <div className="flex items-center justify-between">
-        <span className="font-readout text-[10px] uppercase tracking-wide text-text-muted">
-          Example traces
-        </span>
+    <div className="rounded-[var(--radius-md)] border border-border">
+      <div className="flex items-center gap-1 px-1.5 py-1">
         <button
           type="button"
-          onClick={onCanonical}
-          className="font-readout text-[10px] text-text-muted underline-offset-2 hover:text-text hover:underline"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
         >
-          canonical demo
+          <Chevron open={open} />
+          <span className="truncate text-xs font-medium text-text">
+            {session.source ?? session.id}
+          </span>
+          <span className="ml-auto shrink-0 font-readout text-[10px] text-text-muted tabular-nums">
+            {session.turns.length} turn{session.turns.length === 1 ? "" : "s"}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          title="Remove session"
+          className="shrink-0 rounded-[var(--radius-sm)] px-1 font-readout text-xs text-text-muted hover:bg-surface-muted hover:text-text"
+        >
+          ×
         </button>
       </div>
 
-      {otelExamples.length === 0 ? (
-        <Note text="No bundled examples." />
-      ) : (
-        <ul className="mt-1.5 flex flex-col gap-1">
-          {otelExamples.map((ex) => {
-            const active = currentSource === exampleFilename(ex);
-            return (
-              <li key={ex.id}>
-                <button
-                  type="button"
-                  onClick={() => onLoad(exampleJsonl(ex), exampleFilename(ex))}
-                  aria-pressed={active}
-                  className={cn(
-                    "w-full rounded-[var(--radius-md)] border px-2.5 py-1.5 text-left transition-colors",
-                    active
-                      ? "border-accent bg-accent/10"
-                      : "border-transparent hover:bg-surface-muted",
-                  )}
-                >
-                  <span className="block truncate text-xs font-medium text-text">
-                    {ex.label}
-                  </span>
-                  <span className="mt-0.5 block truncate font-readout text-[10px] text-text-muted">
-                    {ex.description}
-                  </span>
-                </button>
+      {open ? (
+        session.turns.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-text-muted">No turns.</p>
+        ) : (
+          <ul className="flex flex-col gap-0.5 border-t border-border p-1">
+            {session.turns.map((turn) => (
+              <li key={turn.id}>
+                <TurnNode
+                  turn={turn}
+                  active={turn.id === activeTurnId}
+                  open={openTurns.has(turn.id)}
+                  onToggle={() => onToggleTurn(turn.id)}
+                  onSelect={() => onSelectTurn(turn.id)}
+                  selectedStepId={selectedStepId}
+                  onSelectStep={onSelectStep}
+                />
               </li>
-            );
-          })}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )
+      ) : null}
     </div>
+  );
+}
+
+function TurnNode({
+  turn,
+  active,
+  open,
+  onToggle,
+  onSelect,
+  selectedStepId,
+  onSelectStep,
+}: {
+  turn: AgentTurn;
+  active: boolean;
+  open: boolean;
+  onToggle: () => void;
+  onSelect: () => void;
+  selectedStepId: string | null;
+  onSelectStep: (id: string | null) => void;
+}) {
+  const summary: TurnSummary = turn.summary ?? summariseTurn(turn.steps);
+  return (
+    <div
+      className={cn(
+        "rounded-[var(--radius-sm)] border",
+        active ? "border-accent bg-accent/10" : "border-transparent",
+      )}
+    >
+      <div className="flex items-center gap-1 px-1 py-1">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          title={open ? "Collapse steps" : "Expand steps"}
+          className="shrink-0 rounded-[var(--radius-sm)] px-0.5 text-text-muted hover:text-text"
+        >
+          <Chevron open={open} />
+        </button>
+        <button
+          type="button"
+          onClick={onSelect}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-medium text-text">
+              {turn.label ?? `turn ${turn.index + 1}`}
+            </span>
+            <StatusBadge status={summary.status} />
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1 font-readout text-[10px] text-text-muted">
+            <MiniStat label="steps" value={summary.stepCount} />
+            <MiniStat label="tool" value={summary.toolCalls} />
+            <MiniStat label="server" value={summary.serverCalls} />
+            {summary.tokensIn != null || summary.tokensOut != null ? (
+              <MiniStat
+                label="tok"
+                value={`${summary.tokensIn ?? 0}/${summary.tokensOut ?? 0}`}
+              />
+            ) : null}
+            {summary.totalMs != null ? (
+              <MiniStat label="" value={fmtMs(summary.totalMs)} />
+            ) : null}
+          </div>
+        </button>
+      </div>
+
+      {open ? (
+        turn.steps.length === 0 ? (
+          <p className="px-3 py-1 text-[11px] text-text-muted">No steps.</p>
+        ) : (
+          <ul className="flex flex-col gap-0.5 px-1 pb-1">
+            {turn.steps.map((step) => (
+              <li key={step.id}>
+                <StepRow
+                  step={step}
+                  selected={active && step.id === selectedStepId}
+                  onSelect={() => {
+                    // Activate this turn first (the inspector resolves the step
+                    // from the ACTIVE turn), then select the step.
+                    if (!active) onSelect();
+                    onSelectStep(step.id);
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+const kindDot: Record<AgentStep["kind"], string> = {
+  io: "bg-cat-io",
+  router: "bg-cat-router",
+  llm: "bg-cat-llm",
+  tool: "bg-cat-tool",
+  memory: "bg-cat-memory",
+  server: "bg-cat-server",
+};
+
+function StepRow({
+  step,
+  selected,
+  onSelect,
+}: {
+  step: AgentStep;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded-[var(--radius-sm)] border px-2 py-1 text-left transition-colors",
+        selected
+          ? "border-accent bg-accent/10"
+          : "border-transparent hover:bg-surface-muted",
+      )}
+    >
+      <span
+        className={cn("size-1.5 shrink-0 rounded-full", kindDot[step.kind])}
+        aria-hidden
+      />
+      <span className="min-w-0 flex-1 truncate text-[11px] text-text">
+        {step.name}
+      </span>
+      {step.durationMs != null ? (
+        <span className="shrink-0 font-readout text-[10px] text-text-muted tabular-nums">
+          {fmtMs(step.durationMs)}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-block w-3 shrink-0 text-center font-readout text-[10px] text-text-muted"
+    >
+      {open ? "▾" : "▸"}
+    </span>
   );
 }
 
@@ -436,84 +713,7 @@ function Note({ text }: { text: string }) {
   return <p className="font-readout text-[10px] text-text-muted">{text}</p>;
 }
 
-/* --- turn list ----------------------------------------------------------- */
-
-function TurnList({
-  turns,
-  selectedTurnId,
-  onSelect,
-}: {
-  turns: AgentTurn[];
-  selectedTurnId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  if (turns.length === 0) {
-    return (
-      <p className="px-2 py-4 text-xs text-text-muted">No turns in this session.</p>
-    );
-  }
-  return (
-    <ul className="flex flex-col gap-1">
-      {turns.map((turn) => (
-        <li key={turn.id}>
-          <TurnRow
-            turn={turn}
-            active={turn.id === selectedTurnId}
-            onSelect={() => onSelect(turn.id)}
-          />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function TurnRow({
-  turn,
-  active,
-  onSelect,
-}: {
-  turn: AgentTurn;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  const summary: TurnSummary = turn.summary ?? summariseTurn(turn.steps);
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "w-full rounded-[var(--radius-md)] border px-2.5 py-2 text-left transition-colors",
-        active
-          ? "border-accent bg-accent/10"
-          : "border-transparent hover:bg-surface-muted",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-medium">
-          <span className="mr-1.5 font-readout text-xs text-text-muted">
-            #{turn.index + 1}
-          </span>
-          {turn.label ?? "turn"}
-        </span>
-        <StatusBadge status={summary.status} />
-      </div>
-      <div className="mt-1.5 flex flex-wrap gap-1 font-readout text-[10px] text-text-muted">
-        <MiniStat label="steps" value={summary.stepCount} />
-        <MiniStat label="tool" value={summary.toolCalls} />
-        <MiniStat label="server" value={summary.serverCalls} />
-        {summary.tokensIn != null || summary.tokensOut != null ? (
-          <MiniStat
-            label="tok"
-            value={`${summary.tokensIn ?? 0}/${summary.tokensOut ?? 0}`}
-          />
-        ) : null}
-        {summary.totalMs != null ? (
-          <MiniStat label="" value={fmtMs(summary.totalMs)} />
-        ) : null}
-      </div>
-    </button>
-  );
-}
+/* --- shared bits --------------------------------------------------------- */
 
 function MiniStat({ label, value }: { label: string; value: number | string }) {
   return (

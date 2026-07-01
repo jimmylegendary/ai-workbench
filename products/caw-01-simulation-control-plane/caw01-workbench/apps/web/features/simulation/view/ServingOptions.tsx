@@ -175,14 +175,15 @@ export function ServingOptions() {
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
-  const session = useWorkloadStore((s) => s.session);
-  const selectedTurnId = useWorkloadStore((s) => s.selectedTurnId);
+  const sessions = useWorkloadStore((s) => s.sessions);
+  const activeSessionId = useWorkloadStore((s) => s.activeSessionId);
+  const activeTurnId = useWorkloadStore((s) => s.activeTurnId);
   const addRun = useResultStore((s) => s.addRun);
 
-  const selectedTurn = useMemo(
-    () => session?.turns.find((t) => t.id === selectedTurnId) ?? null,
-    [session, selectedTurnId],
-  );
+  const selectedTurn = useMemo(() => {
+    const sess = sessions.find((x) => x.id === activeSessionId);
+    return sess?.turns.find((t) => t.id === activeTurnId) ?? null;
+  }, [sessions, activeSessionId, activeTurnId]);
 
   // Serving inputs = the selected turn's llm/server steps mapped to the contract.
   const servingInputs = useMemo<ServingInput[]>(() => {
