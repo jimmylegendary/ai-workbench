@@ -1,7 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  SIM_GRANULARITY_INFO,
+  type AxisStatus,
+  type HwConfigRef,
+  type SimGranularity,
+  type SimMetric,
+} from "@caw/core";
 import { useWorkbenchStore } from "@/store/workbenchStore";
+import { useWorkloadStore } from "@/features/workload/store";
+import {
+  runServingPipeline,
+  type ServingInput,
+} from "@/features/serving/model/orchestrator";
+import { useServingRunStore } from "@/features/serving/store";
+import { useLogStore } from "@/features/simulation/model/logStore";
+import { useResultStore } from "@/features/sim-result/model/resultStore";
+import type { ResultMetric } from "@/features/sim-result/model/types";
 import { c3PartsById } from "../model/fixtures/c3";
 import {
   hwCapability,
@@ -10,6 +26,7 @@ import {
   type HwCapability,
 } from "../model/hwCapability";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /* ----------------------------------------------------------------------- *
@@ -68,9 +85,64 @@ function ranges(cap: HwCapability, quant: string, tp: number) {
 const clamp = (v: number, lo: number, hi: number): number =>
   Math.min(hi, Math.max(lo, v));
 
+const GRANULARITIES: SimGranularity[] = ["L0", "L1", "L2"];
+
+/** Read a numeric value from a step's free-form meta bag, if present. */
+function metaNum(
+  meta: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  const v = meta?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/** Pull a serving-pipeline tier-total map out of a step's meta, if present. */
+function metaTierTotals(
+  meta: Record<string, unknown> | undefined,
+): ServingInput["tierTotals"] {
+  const raw = meta?.tier_totals;
+  if (!raw || typeof raw !== "object") return undefined;
+  const src = raw as Record<string, unknown>;
+  const pick = (k: string) =>
+    typeof src[k] === "number" ? (src[k] as number) : undefined;
+  const out = {
+    HBM: pick("HBM"),
+    DRAM: pick("DRAM"),
+    SSD: pick("SSD"),
+    MISS: pick("MISS"),
+  };
+  return Object.values(out).some((v) => v !== undefined) ? out : undefined;
+}
+
+/** SimResult metric → in-session ResultMetric (stamp absolute ts from offset). */
+function toResultMetrics(
+  runId: string,
+  metrics: SimMetric[],
+  baseMs: number,
+): ResultMetric[] {
+  return metrics.map((m) => ({
+    runId,
+    axis: m.axis,
+    name: m.name,
+    value: m.value,
+    unit: m.unit ?? null,
+    ts: new Date(baseMs + (m.tsOffsetMs ?? 0)).toISOString(),
+  }));
+}
+
+const RUN_AXES = ["real", "synthetic", "sim"] as const;
+const allAxes = (status: AxisStatus["status"], progress: number): AxisStatus[] =>
+  RUN_AXES.map((axis) => ({ axis, status, progress }));
+
 export function ServingOptions() {
   const partId = useWorkbenchStore((s) => s.selection.partId);
   const canvas = useWorkbenchStore((s) => s.selection.canvas);
+  const setAxisStatus = useWorkbenchStore((s) => s.setAxisStatus);
+  const setRun = useWorkbenchStore((s) => s.setRun);
+  const appendLog = useLogStore((s) => s.append);
+  const setLogRunning = useLogStore((s) => s.setRunning);
+  const clearLog = useLogStore((s) => s.clear);
+  const registerRun = useServingRunStore((s) => s.register);
 
   // Only a Canvas-3 selection drives the HW model; otherwise the default rack.
   const node = useMemo(() => {
@@ -97,6 +169,96 @@ export function ServingOptions() {
   });
 
   const r = useMemo(() => ranges(cap, st.quant, st.tp), [cap, st.quant, st.tp]);
+
+  // ── Phase-3 pipeline: granularity (local) + run against the workload turn ──
+  const [granularity, setGranularity] = useState<SimGranularity>("L0");
+  const [running, setRunning] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const session = useWorkloadStore((s) => s.session);
+  const selectedTurnId = useWorkloadStore((s) => s.selectedTurnId);
+  const addRun = useResultStore((s) => s.addRun);
+
+  const selectedTurn = useMemo(
+    () => session?.turns.find((t) => t.id === selectedTurnId) ?? null,
+    [session, selectedTurnId],
+  );
+
+  // Serving inputs = the selected turn's llm/server steps mapped to the contract.
+  const servingInputs = useMemo<ServingInput[]>(() => {
+    if (!selectedTurn) return [];
+    return selectedTurn.steps
+      .filter((s) => s.kind === "llm" || s.kind === "server")
+      .map((s) => ({
+        label: s.name,
+        promptTokens: s.tokensIn ?? 0,
+        outTokens: s.tokensOut,
+        hashBlocks: metaNum(s.meta, "n_prompt_hash_blocks"),
+        chunkSize: metaNum(s.meta, "chunk_size"),
+        tierTotals: metaTierTotals(s.meta),
+      }));
+  }, [selectedTurn]);
+
+  const canRun = !!selectedTurn && !running;
+
+  const runPipeline = async () => {
+    if (!selectedTurn || running) return;
+    if (servingInputs.length === 0) {
+      setStatus("no llm/server steps in the selected turn");
+      return;
+    }
+    const hw: HwConfigRef = {
+      partId: canvas === "c3" && partId ? partId : undefined,
+      summary: {
+        gpuName: cap.gpuName,
+        gpus: cap.gpus,
+        hbmGbPerGpu: cap.hbmGbPerGpu,
+        nvlinkDomain: cap.nvlinkDomain,
+        nodes: cap.nodes,
+        fp8: cap.fp8,
+        fp4: cap.fp4,
+        hasCxl: cap.hasCxl,
+        framework: st.framework,
+        tp: st.tp,
+        pp: st.pp,
+        quant: st.quant,
+      },
+    };
+    setRunning(true);
+    setStatus(`running ${granularity} · ${servingInputs.length} step(s)…`);
+    // Feed the shared run loop so the ControlPanel Run-status + SimLog reflect it.
+    clearLog();
+    setLogRunning(true);
+    appendLog({ level: "info", msg: `serving pipeline ${granularity} — ${servingInputs.length} step(s)` });
+    setAxisStatus(allAxes("running", 0.1));
+    try {
+      const res = await runServingPipeline(servingInputs, hw, granularity);
+      const runId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `run-${Date.now()}`;
+      const label = `${selectedTurn.label ?? `turn ${selectedTurn.index}`} · ${granularity}`;
+      addRun(runId, toResultMetrics(runId, res.metrics, Date.now()), label);
+      setAxisStatus(allAxes("succeeded", 1));
+      setRun(runId);
+      setStatus(`done · ${res.metrics.length} metric(s) → results`);
+    } catch (e) {
+      setAxisStatus(allAxes("failed", 0));
+      setStatus(`failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLogRunning(false);
+      setRunning(false);
+    }
+  };
+
+  // Publish the run to the shared registry so the ControlPanel's primary Run
+  // drives THIS configured pipeline (stable wrapper → latest runPipeline).
+  const runRef = useRef(runPipeline);
+  runRef.current = runPipeline;
+  useEffect(() => {
+    registerRun(() => runRef.current(), canRun);
+    return () => registerRun(null, false);
+  }, [registerRun, canRun]);
 
   // Re-clamp / reset choices into the new valid ranges when the HW changes.
   useEffect(() => {
@@ -268,6 +430,54 @@ export function ServingOptions() {
             </div>
           ) : null}
         </div>
+      </div>
+
+      {/* Phase-3 run: granularity + pipeline against the selected workload turn. */}
+      <div className="shrink-0 space-y-2 border-t border-border p-2">
+        <div className="space-y-1">
+          <FieldLabel label="Simulation granularity" />
+          <div className="flex gap-1">
+            {GRANULARITIES.map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setGranularity(g)}
+                title={SIM_GRANULARITY_INFO[g].why}
+                className={cn(
+                  "flex-1 rounded-[var(--radius-sm)] border px-1.5 py-1 text-left font-readout",
+                  granularity === g
+                    ? "border-accent text-accent"
+                    : "border-border text-text hover:bg-surface-muted",
+                )}
+              >
+                <span className="block text-[11px] font-medium">{g}</span>
+                <span className="block text-[9px] leading-tight text-text-muted">
+                  {SIM_GRANULARITY_INFO[g].title}
+                </span>
+              </button>
+            ))}
+          </div>
+          <Why
+            text={`${SIM_GRANULARITY_INFO[granularity].why} · fidelity ↔ time`}
+          />
+        </div>
+
+        <Button
+          type="button"
+          variant="primary"
+          disabled={!canRun}
+          onClick={runPipeline}
+          className="w-full py-1 text-[12px]"
+        >
+          {running ? "Running…" : "Run serving pipeline"}
+        </Button>
+
+        <p className="font-readout text-[10px] text-text-muted">
+          {status ??
+            (selectedTurn
+              ? `${servingInputs.length} llm/server step(s) in the selected turn`
+              : "select a workload turn to run")}
+        </p>
       </div>
     </div>
   );

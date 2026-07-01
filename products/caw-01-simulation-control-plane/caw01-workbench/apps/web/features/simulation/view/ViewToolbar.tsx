@@ -50,25 +50,25 @@ export function ViewToolbar() {
         ))}
       </div>
 
-      {mode === "split" && (
-        <div className="flex items-center gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTab(t.id)}
-              className={cn(
-                "rounded-[var(--radius-sm)] px-2 py-0.5 text-xs transition-colors",
-                activeTab === t.id
-                  ? "bg-surface-muted font-medium text-text"
-                  : "text-text-muted hover:text-text",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Tabs: in 'split' they pick the visible canvas; in 'all' they switch the
+          right-hand context rail (Workload / Serving / HW). Always shown. */}
+      <div className="flex items-center gap-1">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setActiveTab(t.id)}
+            className={cn(
+              "rounded-[var(--radius-sm)] px-2 py-0.5 text-xs transition-colors",
+              activeTab === t.id
+                ? "bg-surface-muted font-medium text-text"
+                : "text-text-muted hover:text-text",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       <button
         type="button"

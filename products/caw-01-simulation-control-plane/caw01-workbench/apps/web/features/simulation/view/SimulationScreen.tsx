@@ -6,6 +6,8 @@ import { useWorkbenchStore, type CanvasId } from "@/store/workbenchStore";
 import { useSimulationVM } from "../viewmodel/useSimulationVM";
 import { ControlPanel } from "./ControlPanel";
 import { ServingOptions } from "./ServingOptions";
+import { WorkloadPanel } from "./WorkloadPanel";
+import { HwPanel } from "./HwPanel";
 import { ViewToolbar } from "./ViewToolbar";
 import { FlowCanvasC1 } from "./canvases/FlowCanvasC1";
 import { FlowCanvasC2 } from "./canvases/FlowCanvasC2";
@@ -39,6 +41,14 @@ export function SimulationScreen({ experimentId }: { experimentId: string }) {
     c3: <HardwareTreeC3 />,
   };
 
+  // Right rail is context-sensitive per active tab (drives 'split' and 'all'):
+  //   c1 → Workload trace panel · c2 → Serving options · c3 → Hardware panel.
+  const rails: Record<CanvasId, ReactNode> = {
+    c1: <WorkloadPanel />,
+    c2: <ServingOptions />,
+    c3: <HwPanel />,
+  };
+
   return (
     <SplitPane
       left={
@@ -61,8 +71,8 @@ export function SimulationScreen({ experimentId }: { experimentId: string }) {
       right={
         <div className="flex h-full min-h-0 flex-col">
           <ViewToolbar />
-          {/* canvas area + a self-contained HW-aware serving-options rail
-             (Canvas 2 representation, reading the Canvas 3 hardware model). */}
+          {/* canvas area + a context-sensitive rail keyed to the active tab
+             (c1 Workload · c2 Serving options · c3 Hardware). */}
           <div className="flex min-h-0 flex-1 gap-2 px-2">
             <div className="min-h-0 flex-1">
               {mode === "all" ? (
@@ -75,9 +85,7 @@ export function SimulationScreen({ experimentId }: { experimentId: string }) {
                 <div className="h-full">{canvases[activeTab]}</div>
               )}
             </div>
-            <div className="w-64 shrink-0">
-              <ServingOptions />
-            </div>
+            <div className="w-64 shrink-0">{rails[activeTab]}</div>
           </div>
           {/* compact live sim-log strip — canvases get the bulk of the height */}
           <div className="mt-2 h-44 shrink-0 border-t border-border">

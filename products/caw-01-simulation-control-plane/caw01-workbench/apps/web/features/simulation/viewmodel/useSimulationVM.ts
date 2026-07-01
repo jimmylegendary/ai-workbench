@@ -7,6 +7,7 @@ import { stopRunAction, saveAction } from "../model/actions";
 import { runSimulation } from "../model/runAction";
 import { useLogStore } from "../model/logStore";
 import { useResultStore } from "@/features/sim-result/model/resultStore";
+import { useServingRunStore } from "@/features/serving/store";
 import { useRunStatus } from "./useRunStatus";
 
 const AXES = ["real", "synthetic", "sim"] as const;
@@ -95,7 +96,16 @@ export function useSimulationVM(experimentId: string) {
     status,
     // intents
     select,
-    onRun: () => run.mutate(),
+    // Unified Run: drive the CONFIGURED serving pipeline when one is registered
+    // (a workload turn is selected in the Serving tab); else the synth demo.
+    onRun: () => {
+      const { runner, canRun } = useServingRunStore.getState();
+      if (runner && canRun) {
+        void runner();
+        return;
+      }
+      run.mutate();
+    },
     onStop: () => stop.mutate(),
     onSaveItem: () => save.mutate("item"),
     onSaveAll: () => save.mutate("full"),

@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 
 /** Primary sections. */
 const items = [
-  { href: "/workload", label: "Workload" },
   { href: "/simulation", label: "Simulation" },
   { href: "/module-design", label: "Module Design" },
   { href: "/sim-result", label: "Sim Result" },
