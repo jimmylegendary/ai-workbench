@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+@import '../../styles/theme.css';
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a {
+    color: var(--color-link);
+  }
+}
