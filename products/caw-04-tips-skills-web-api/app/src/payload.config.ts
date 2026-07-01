@@ -15,6 +15,7 @@ import { Articles } from './collections/Articles'
 import { Reactions } from './collections/Reactions'
 import { Favorites } from './collections/Favorites'
 import { Views } from './collections/Views'
+import { searchContent } from './lib/search'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -41,5 +42,25 @@ export default buildConfig({
   },
   db,
   sharp,
+  endpoints: [
+    {
+      // GET /api/search?q=...&type=skills|tips|news  (auth required; agents use API key)
+      path: '/search',
+      method: 'get',
+      handler: async (req) => {
+        if (!req.user) {
+          return Response.json({ error: 'unauthorized' }, { status: 401 })
+        }
+        const q = typeof req.query?.q === 'string' ? req.query.q : ''
+        const typeParam = typeof req.query?.type === 'string' ? req.query.type : ''
+        const types =
+          typeParam && ['skills', 'tips', 'news'].includes(typeParam)
+            ? [typeParam as 'skills' | 'tips' | 'news']
+            : undefined
+        const results = await searchContent(req.payload, q, { types })
+        return Response.json({ query: q, count: results.length, results })
+      },
+    },
+  ],
   plugins: [],
 })

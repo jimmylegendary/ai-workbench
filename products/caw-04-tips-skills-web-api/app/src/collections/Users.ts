@@ -8,7 +8,9 @@ export const Users: CollectionConfig = {
     useAsTitle: 'email',
     defaultColumns: ['name', 'email', 'roles'],
   },
-  auth: true,
+  auth: {
+    useAPIKey: true, // lets a "connected skill" authenticate via Authorization: users API-Key <key>
+  },
   fields: [
     { name: 'name', type: 'text' },
     {

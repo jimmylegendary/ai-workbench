@@ -50,6 +50,29 @@ const run = async () => {
     console.log(`seed: created admin ${email} (password: changeme123)`)
   }
 
+  // Service account for the "connected skill" (agent) — authenticates via API key.
+  const agentEmail = 'agent@caw04.local'
+  const agentKey = 'caw04-agent-dev-key-0123456789'
+  const agentExisting = await payload.find({
+    collection: 'users',
+    where: { email: { equals: agentEmail } },
+    limit: 1,
+  })
+  if (!agentExisting.docs.length) {
+    await payload.create({
+      collection: 'users',
+      data: {
+        email: agentEmail,
+        password: 'agent-unused-password',
+        name: 'CAW-04 Agent',
+        roles: ['curator'],
+        enableAPIKey: true,
+        apiKey: agentKey,
+      },
+    })
+    console.log(`seed: created agent ${agentEmail} (API key: ${agentKey})`)
+  }
+
   for (const s of SKILLS) {
     const found = await payload.find({
       collection: 'skills',

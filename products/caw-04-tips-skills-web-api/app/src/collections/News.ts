@@ -40,6 +40,7 @@ export const News: CollectionConfig = {
       name: 'author',
       type: 'relationship',
       relationTo: 'users',
+      defaultValue: ({ req }) => req?.user?.id,
       admin: { position: 'sidebar' },
     },
   ],
