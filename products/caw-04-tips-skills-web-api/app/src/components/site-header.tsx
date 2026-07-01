@@ -13,7 +13,7 @@ export function SiteHeader({
   user?: { email?: string | null; roles?: string[] | null } | null
   t: Dictionary
   locale: Locale
-  active?: 'skills' | 'tips' | 'news' | 'me'
+  active?: 'skills' | 'tips' | 'news' | 'me' | 'articles'
 }) {
   const roles = ((user?.roles as string[] | undefined) ?? []) as string[]
   const canInvite = roles.some((r) => r === 'admin' || r === 'curator')
@@ -21,6 +21,7 @@ export function SiteHeader({
     { key: 'skills', label: t.nav.skills, href: '/' },
     { key: 'tips', label: t.nav.tips, href: '/tips' },
     { key: 'news', label: t.nav.news, href: '/news' },
+    { key: 'articles', label: t.nav.digest, href: '/articles' },
   ] as const
 
   return (

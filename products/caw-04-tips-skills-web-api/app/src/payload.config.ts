@@ -15,6 +15,7 @@ import { Articles } from './collections/Articles'
 import { Reactions } from './collections/Reactions'
 import { Favorites } from './collections/Favorites'
 import { Views } from './collections/Views'
+import { Subscriptions } from './collections/Subscriptions'
 import { searchContent } from './lib/search'
 
 const filename = fileURLToPath(import.meta.url)
@@ -34,7 +35,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Skills, Tips, News, Articles, Reactions, Favorites, Views],
+  collections: [Users, Media, Skills, Tips, News, Articles, Reactions, Favorites, Views, Subscriptions],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
