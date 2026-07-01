@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 
-import { isAdminOrCurator, isAuthenticated } from '../access/roles'
+import { isAuthenticated, isAuthorOrStaff } from '../access/roles'
 
 // An atomic AI-usage tip.
 export const Tips: CollectionConfig = {
@@ -14,8 +14,8 @@ export const Tips: CollectionConfig = {
   access: {
     read: isAuthenticated,
     create: isAuthenticated,
-    update: isAuthenticated,
-    delete: isAdminOrCurator,
+    update: isAuthorOrStaff,
+    delete: isAuthorOrStaff,
   },
   fields: [
     { name: 'title', type: 'text', required: true },

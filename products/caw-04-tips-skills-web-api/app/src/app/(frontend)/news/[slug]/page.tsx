@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BodyProse } from '@/components/body-prose'
 import { EngagementBar } from '@/components/engagement-bar'
+import { OwnerControls, canEditDoc } from '@/components/owner-controls'
 import { SiteHeader } from '@/components/site-header'
 import { ViewPing } from '@/components/view-ping'
 
@@ -42,6 +43,7 @@ export default async function NewsDetailPage({
         <a href="/news" className="text-sm text-[var(--color-text-muted)] hover:text-text">
           ← {t.nav.news}
         </a>
+        <OwnerControls type="news" id={item.id} canEdit={canEditDoc(user, item)} t={t} />
         <h1 className="mt-4 text-[36px] font-bold leading-[42px] tracking-tight">{item.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-muted)]">
           {item.source ? (

@@ -8,6 +8,7 @@ import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { BodyProse } from '@/components/body-prose'
 import { EngagementBar } from '@/components/engagement-bar'
+import { OwnerControls, canEditDoc } from '@/components/owner-controls'
 import { SiteHeader } from '@/components/site-header'
 import { ViewPing } from '@/components/view-ping'
 
@@ -41,6 +42,7 @@ export default async function TipDetailPage({
         <a href="/tips" className="text-sm text-[var(--color-text-muted)] hover:text-text">
           ← {t.nav.tips}
         </a>
+        <OwnerControls type="tips" id={tip.id} canEdit={canEditDoc(user, tip)} t={t} />
         <h1 className="mt-4 text-[36px] font-bold leading-[42px] tracking-tight">{tip.title}</h1>
         {tip.summary ? <p className="mt-2 text-[var(--color-text-muted)]">{tip.summary}</p> : null}
         {tip.tags && tip.tags.length > 0 ? (

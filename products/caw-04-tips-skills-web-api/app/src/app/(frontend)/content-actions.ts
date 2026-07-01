@@ -11,6 +11,8 @@ import { plaintextToLexical } from '@/lib/lexical'
 const CREATABLE = ['skills', 'tips', 'news'] as const
 type Creatable = (typeof CREATABLE)[number]
 
+const listPath = (type: Creatable) => (type === 'skills' ? '/' : `/${type}`)
+
 const slugify = (s: string) =>
   s
     .toLowerCase()
@@ -68,6 +70,59 @@ export async function createContentAction(
   } catch {
     return { error: 'failed' }
   }
-  revalidatePath(`/${type}`)
+  revalidatePath(listPath(type as Creatable))
   redirect(`/${type}/${slug}`)
+}
+
+export type UpdateState = { error?: 'auth' | 'title' | 'forbidden' }
+export async function updateContentAction(
+  _prev: UpdateState,
+  formData: FormData,
+): Promise<UpdateState> {
+  const type = String(formData.get('type') || '') as Creatable
+  const id = String(formData.get('id') || '')
+  const slug = String(formData.get('slug') || '')
+  if (!CREATABLE.includes(type) || !id) return { error: 'forbidden' }
+
+  const payload = await getPayload({ config: await config })
+  const { user } = await payload.auth({ headers: await nextHeaders() })
+  if (!user) return { error: 'auth' }
+
+  const title = String(formData.get('title') || '').trim()
+  if (!title) return { error: 'title' }
+  const summary = String(formData.get('summary') || '').trim()
+  const bodyText = String(formData.get('body') || '').trim()
+  const tags = String(formData.get('tags') || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((tag) => ({ tag }))
+
+  const data: Record<string, unknown> = { title, summary, tags, body: plaintextToLexical(bodyText) }
+  if (type === 'news') {
+    data.url = String(formData.get('url') || '').trim()
+    data.source = String(formData.get('source') || '').trim()
+  }
+
+  try {
+    await payload.update({ collection: type, id, data, overrideAccess: false, user })
+  } catch {
+    return { error: 'forbidden' }
+  }
+  revalidatePath(listPath(type as Creatable))
+  redirect(`/${type}/${slug}`)
+}
+
+export async function deleteContentAction(type: string, id: number | string) {
+  if (!CREATABLE.includes(type as Creatable)) return
+  const payload = await getPayload({ config: await config })
+  const { user } = await payload.auth({ headers: await nextHeaders() })
+  if (!user) return
+  try {
+    await payload.delete({ collection: type as Creatable, id, overrideAccess: false, user })
+  } catch {
+    return
+  }
+  revalidatePath(listPath(type as Creatable))
+  redirect(listPath(type as Creatable))
 }

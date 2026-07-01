@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 
-import { isAdminOrCurator, isAuthenticated } from '../access/roles'
+import { isAuthenticated, isAuthorOrStaff } from '../access/roles'
 
 // A reusable Skill: rich, typed metadata (inputs/outputs/preconditions/
 // provenance) + edit history via drafts/versions. No semver/immutable versions.
@@ -15,8 +15,8 @@ export const Skills: CollectionConfig = {
   access: {
     read: isAuthenticated,
     create: isAuthenticated,
-    update: isAuthenticated,
-    delete: isAdminOrCurator,
+    update: isAuthorOrStaff,
+    delete: isAuthorOrStaff,
   },
   fields: [
     { name: 'title', type: 'text', required: true },

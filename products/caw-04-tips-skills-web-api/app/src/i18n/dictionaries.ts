@@ -62,6 +62,10 @@ const ko = {
     submit: '게시',
     needTitle: '제목을 입력하세요.',
     failed: '저장에 실패했습니다.',
+    edit: '수정',
+    save: '저장',
+    del: '삭제',
+    deleteConfirm: '삭제하시겠습니까?',
   },
   home: {
     title: '스킬',
@@ -180,6 +184,10 @@ const en: typeof ko = {
     submit: 'Publish',
     needTitle: 'Please enter a title.',
     failed: 'Could not save.',
+    edit: 'Edit',
+    save: 'Save',
+    del: 'Delete',
+    deleteConfirm: 'Delete this?',
   },
   home: {
     title: 'Skills',

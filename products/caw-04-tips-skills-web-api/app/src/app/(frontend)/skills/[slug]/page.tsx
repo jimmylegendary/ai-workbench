@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { BodyProse } from '@/components/body-prose'
 import { EngagementBar } from '@/components/engagement-bar'
+import { OwnerControls, canEditDoc } from '@/components/owner-controls'
 import { SiteHeader } from '@/components/site-header'
 import { ViewPing } from '@/components/view-ping'
 
@@ -43,6 +44,7 @@ export default async function SkillDetailPage({
         <a href="/" className="text-sm text-[var(--color-text-muted)] hover:text-text">
           {t.skill.back}
         </a>
+        <OwnerControls type="skills" id={skill.id} canEdit={canEditDoc(user, skill)} t={t} />
 
         <div className="mt-4 mb-2 flex items-start justify-between gap-3">
           <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{skill.title}</h1>
