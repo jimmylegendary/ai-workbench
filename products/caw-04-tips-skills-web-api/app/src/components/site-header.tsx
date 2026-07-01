@@ -49,6 +49,14 @@ export function SiteHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          <form action="/search" method="get" className="hidden md:block">
+            <input
+              name="q"
+              placeholder={t.common.search}
+              aria-label={t.common.search}
+              className="h-8 w-40 rounded-md border border-border bg-surface px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+            />
+          </form>
           <LanguageSwitcher locale={locale} />
           {user ? (
             <>

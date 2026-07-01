@@ -13,6 +13,7 @@ const ko = {
     copy: '복사',
     copied: '복사됨',
     dashboard: '내 활동',
+    search: '검색',
   },
   nav: { skills: '스킬', tips: '팁', news: '뉴스' },
   types: { skills: '스킬', tips: '팁', news: '뉴스', articles: '아티클' },
@@ -26,6 +27,13 @@ const ko = {
   },
   tipsPage: { title: '팁', subtitle: 'AI를 잘 쓰기 위한 짧은 실전 팁.' },
   newsPage: { title: '뉴스', subtitle: 'AI 관련 소식과 링크.', source: '출처', visit: '원문 보기' },
+  searchPage: {
+    title: '검색',
+    placeholder: '검색…',
+    prompt: '검색어를 입력하세요.',
+    empty: '검색 결과가 없습니다.',
+    resultsFor: '검색 결과',
+  },
   home: {
     title: '스킬',
     subtitle: 'AI 작업을 위한 재사용 가능한 검증된 단위 — 입력·출력·출처.',
@@ -94,6 +102,7 @@ const en: typeof ko = {
     copy: 'Copy',
     copied: 'Copied',
     dashboard: 'Dashboard',
+    search: 'Search',
   },
   nav: { skills: 'Skills', tips: 'Tips', news: 'News' },
   types: { skills: 'Skill', tips: 'Tip', news: 'News', articles: 'Article' },
@@ -107,6 +116,13 @@ const en: typeof ko = {
   },
   tipsPage: { title: 'Tips', subtitle: 'Short, practical tips for working well with AI.' },
   newsPage: { title: 'News', subtitle: 'AI-related news and links.', source: 'Source', visit: 'Open original' },
+  searchPage: {
+    title: 'Search',
+    placeholder: 'Search…',
+    prompt: 'Type a query to search.',
+    empty: 'No results.',
+    resultsFor: 'Results',
+  },
   home: {
     title: 'Skills',
     subtitle: 'Reusable, validated units for working with AI — inputs, outputs, and provenance.',
