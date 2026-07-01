@@ -34,25 +34,24 @@ function exampleFilename(ex: OtelExample): string {
 /* ----------------------------------------------------------------------- *
  * WorkloadPanel — the right rail shown when the Workload / C1 tab is active.
  *
- * A compact, self-contained rail (matching the ServingOptions idiom):
- *   1. TOP — a fixed LOADER block (never shifts on load): a trace SOURCE
- *      selector (PC | Server | Supabase) + the chosen sub-loader, a Reset
- *      button, and an "Example traces" row.
- *   2. BELOW — a collapsible SESSIONS → TURNS → STEPS tree from the store.
- *   3. the selected step inspector at the bottom.
+ *   1. TOP — a fixed LOADER block: a trace SOURCE selector
+ *      (PC | Server | Supabase | Example) + the chosen source's loader, and a
+ *      Reset button. Examples are just another source — an example = one session.
+ *   2. BELOW — a SESSIONS → TURNS → STEPS tree. Each session and each turn
+ *      independently expands/collapses (chevrons). Clicking a turn shows it in
+ *      the C1 canvas; clicking a step opens it in the inspector.
  *
- * The store (Agent 1) holds any number of loaded sessions and is the single
- * source of truth; loads funnel through loadFromText so parse failures surface
- * in the store's `error`. Nothing is loaded at startup — the tree shows an
- * empty state until an example/file is loaded, and Reset clears everything.
+ * Nothing is loaded at startup; loads funnel through the store's loadFromText so
+ * parse failures surface in `error`. Reset clears everything.
  * ----------------------------------------------------------------------- */
 
-type Source = "pc" | "server" | "supabase";
+type Source = "pc" | "server" | "supabase" | "example";
 
 const SOURCES: { v: Source; label: string }[] = [
   { v: "pc", label: "PC" },
   { v: "server", label: "Server" },
   { v: "supabase", label: "Supabase" },
+  { v: "example", label: "Example" },
 ];
 
 export function WorkloadPanel() {
@@ -67,26 +66,21 @@ export function WorkloadPanel() {
   const removeSession = useWorkloadStore((s) => s.removeSession);
   const reset = useWorkloadStore((s) => s.reset);
 
-  const [source, setSource] = useState<Source>("pc");
+  const [source, setSource] = useState<Source>("example");
 
-  // Master-detail accordion: expanding one pane collapses the other.
-  //   'sessions' → the full sessions/example list is shown, turns preview small.
-  //   'turns'    → the active session's turns fill the pane, session list hides.
-  const [focus, setFocus] = useState<"sessions" | "turns">("sessions");
-  // Which turns show their step list.
+  // Independent expand/collapse state for sessions and for turns.
+  const [openSessions, setOpenSessions] = useState<Set<string>>(new Set());
   const [openTurns, setOpenTurns] = useState<Set<string>>(new Set());
 
-  const activeSession = sessions.find((x) => x.id === activeSessionId) ?? null;
-  const activeTurn =
-    activeSession?.turns.find((t) => t.id === activeTurnId) ?? null;
-  const selectedStep =
-    activeTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
-
-  const loadedSources = new Set(
-    sessions.map((s) => s.source).filter((v): v is string => v != null),
-  );
-
-  // Reveal the active turn's steps when it changes.
+  // Reveal the active session + turn when they change (without clobbering the
+  // user's manual expand/collapse elsewhere).
+  useEffect(() => {
+    if (activeSessionId) {
+      setOpenSessions((prev) =>
+        prev.has(activeSessionId) ? prev : new Set(prev).add(activeSessionId),
+      );
+    }
+  }, [activeSessionId]);
   useEffect(() => {
     if (activeTurnId) {
       setOpenTurns((prev) =>
@@ -95,6 +89,13 @@ export function WorkloadPanel() {
     }
   }, [activeTurnId]);
 
+  const toggleSession = (id: string) =>
+    setOpenSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const toggleTurn = (id: string) =>
     setOpenTurns((prev) => {
       const next = new Set(prev);
@@ -103,14 +104,16 @@ export function WorkloadPanel() {
       return next;
     });
 
-  // Selecting a session activates it (+ its first turn) and expands the turns pane.
-  const selectSession = (s: AgentSession) => {
-    selectTurn(s.id, s.turns[0]?.id ?? "");
-    setFocus("turns");
-  };
+  const activeTurn =
+    sessions
+      .find((x) => x.id === activeSessionId)
+      ?.turns.find((t) => t.id === activeTurnId) ?? null;
+  const selectedStep =
+    activeTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
 
-  // With nothing active, always show the sessions pane.
-  const effectiveFocus: "sessions" | "turns" = activeSession ? focus : "sessions";
+  const loadedSources = new Set(
+    sessions.map((s) => s.source).filter((v): v is string => v != null),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-md)] border border-border bg-surface">
@@ -125,7 +128,7 @@ export function WorkloadPanel() {
 
       {/* 1. LOADER BLOCK (always at the very top) ------------------------- */}
       <div className="shrink-0 border-b border-border p-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div
             role="tablist"
             aria-label="Trace source"
@@ -166,8 +169,10 @@ export function WorkloadPanel() {
             <PcLoader onLoad={loadFromText} />
           ) : source === "server" ? (
             <ServerLoader onLoad={loadFromText} />
-          ) : (
+          ) : source === "supabase" ? (
             <SupabaseLoader onLoad={loadFromText} />
+          ) : (
+            <ExampleLoader loadedSources={loadedSources} onLoad={loadFromText} />
           )}
         </div>
 
@@ -176,88 +181,39 @@ export function WorkloadPanel() {
             <Badge tone="danger">{error}</Badge>
           </div>
         ) : null}
-
-        {/* Example traces */}
-        <ExampleTraces loadedSources={loadedSources} onLoad={loadFromText} />
       </div>
 
-      {/* 2. ACCORDION: Sessions ⇄ Turns (expanding one collapses the other) - */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* Pane 1 — sessions list */}
-        <SectionHeader
-          label={`Sessions${sessions.length ? ` · ${sessions.length}` : ""}`}
-          open={effectiveFocus === "sessions"}
-          onClick={() => setFocus("sessions")}
-        />
-        {effectiveFocus === "sessions" ? (
-          <div className="min-h-0 flex-1 overflow-auto p-2">
-            {sessions.length === 0 ? (
-              <p className="px-2 py-6 text-center text-xs text-text-muted">
-                No trace loaded — pick an example or load a file above.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {sessions.map((session) => (
-                  <li key={session.id}>
-                    <SessionRow
-                      session={session}
-                      active={session.id === activeSessionId}
-                      onSelect={() => selectSession(session)}
-                      onRemove={() => removeSession(session.id)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
-
-        {/* Pane 2 — turns of the active session */}
-        <SectionHeader
-          label={
-            activeSession
-              ? `${activeSession.source ?? activeSession.id} · ${activeSession.turns.length} turn${activeSession.turns.length === 1 ? "" : "s"}`
-              : "Turns"
-          }
-          open={effectiveFocus === "turns"}
-          onClick={() => activeSession && setFocus("turns")}
-          disabled={!activeSession}
-        />
-        <div
-          className={cn(
-            "overflow-auto p-2",
-            effectiveFocus === "turns"
-              ? "min-h-0 flex-1"
-              : "max-h-44 shrink-0", // small preview while the sessions list is expanded
-          )}
-        >
-          {!activeSession ? (
-            <p className="px-2 py-3 text-center text-[11px] text-text-muted">
-              Select a session to see its turns.
-            </p>
-          ) : activeSession.turns.length === 0 ? (
-            <p className="px-2 py-3 text-[11px] text-text-muted">No turns.</p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {activeSession.turns.map((turn) => (
-                <li key={turn.id}>
-                  <TurnNode
-                    turn={turn}
-                    active={turn.id === activeTurnId}
-                    open={openTurns.has(turn.id)}
-                    onToggle={() => toggleTurn(turn.id)}
-                    onSelect={() => selectTurn(activeSession.id, turn.id)}
-                    selectedStepId={selectedStepId}
-                    onSelectStep={selectStep}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* 2. SESSIONS → TURNS → STEPS TREE -------------------------------- */}
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {sessions.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-text-muted">
+            No trace loaded — pick an example (Example) or load a file above.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {sessions.map((session) => (
+              <li key={session.id}>
+                <SessionNode
+                  session={session}
+                  open={openSessions.has(session.id)}
+                  onToggle={() => toggleSession(session.id)}
+                  onRemove={() => removeSession(session.id)}
+                  openTurns={openTurns}
+                  onToggleTurn={toggleTurn}
+                  activeTurnId={
+                    activeSessionId === session.id ? activeTurnId : null
+                  }
+                  selectedStepId={selectedStepId}
+                  onSelectTurn={(turnId) => selectTurn(session.id, turnId)}
+                  onSelectStep={selectStep}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* 3. STEP INSPECTOR ------------------------------------------------ */}
+      {/* 3. STEP INSPECTOR ----------------------------------------------- */}
       <div className="max-h-[40%] min-h-0 shrink-0 overflow-auto border-t border-border">
         <StepInspector step={selectedStep} />
       </div>
@@ -265,154 +221,82 @@ export function WorkloadPanel() {
   );
 }
 
-/** Collapsible accordion section header (chevron + label; click toggles focus). */
-function SectionHeader({
-  label,
-  open,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  open: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-expanded={open}
-      className={cn(
-        "flex shrink-0 items-center gap-1.5 border-b border-border px-2 py-1 text-left font-readout text-[10px] uppercase tracking-wide transition-colors",
-        disabled
-          ? "cursor-default text-text-muted/50"
-          : open
-            ? "text-text"
-            : "text-text-muted hover:text-text",
-      )}
-    >
-      <Chevron open={open} />
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
+/* --- sessions tree (session ▸ turns ▸ steps, each independent) ----------- */
 
-/** One loaded session in the sessions list (click selects; × removes). */
-function SessionRow({
+function SessionNode({
   session,
-  active,
-  onSelect,
+  open,
+  onToggle,
   onRemove,
+  openTurns,
+  onToggleTurn,
+  activeTurnId,
+  selectedStepId,
+  onSelectTurn,
+  onSelectStep,
 }: {
   session: AgentSession;
-  active: boolean;
-  onSelect: () => void;
+  open: boolean;
+  onToggle: () => void;
   onRemove: () => void;
+  openTurns: Set<string>;
+  onToggleTurn: (id: string) => void;
+  activeTurnId: string | null;
+  selectedStepId: string | null;
+  onSelectTurn: (turnId: string) => void;
+  onSelectStep: (id: string | null) => void;
 }) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-1 rounded-[var(--radius-md)] border px-1.5 py-1.5",
-        active
-          ? "border-accent bg-accent/10"
-          : "border-border hover:bg-surface-muted",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-      >
-        <span className="truncate text-xs font-medium text-text">
-          {session.source ?? session.id}
-        </span>
-        <span className="ml-auto shrink-0 font-readout text-[10px] text-text-muted tabular-nums">
-          {session.turns.length} turn{session.turns.length === 1 ? "" : "s"}
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        title="Remove session"
-        className="shrink-0 rounded-[var(--radius-sm)] px-1 font-readout text-xs text-text-muted hover:bg-surface-muted hover:text-text"
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-/* --- example traces ------------------------------------------------------ */
-
-function ExampleTraces({
-  loadedSources,
-  onLoad,
-}: {
-  loadedSources: Set<string>;
-  onLoad: (text: string, filename?: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  if (otelExamples.length === 0) {
-    return (
-      <div className="mt-2">
-        <Note text="No bundled examples." />
+    <div className="rounded-[var(--radius-md)] border border-border">
+      <div className="flex items-center gap-1 px-1.5 py-1">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <Chevron open={open} />
+          <span className="truncate text-xs font-medium text-text">
+            {session.source ?? session.id}
+          </span>
+          <span className="ml-auto shrink-0 font-readout text-[10px] text-text-muted tabular-nums">
+            {session.turns.length} turn{session.turns.length === 1 ? "" : "s"}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          title="Remove session"
+          className="shrink-0 rounded-[var(--radius-sm)] px-1 font-readout text-xs text-text-muted hover:bg-surface-muted hover:text-text"
+        >
+          ×
+        </button>
       </div>
-    );
-  }
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1.5 text-left font-readout text-[10px] uppercase tracking-wide text-text-muted hover:text-text"
-      >
-        <Chevron open={open} />
-        <span>Example traces</span>
-        <span className="ml-auto tabular-nums">{otelExamples.length}</span>
-      </button>
-      {!open ? null : (
-      <ul className="mt-1 flex flex-col gap-1">
-        {otelExamples.map((ex) => {
-          const loaded = loadedSources.has(exampleFilename(ex));
-          return (
-            <li key={ex.id}>
-              <button
-                type="button"
-                title={ex.description}
-                onClick={() => onLoad(exampleJsonl(ex), exampleFilename(ex))}
-                className={cn(
-                  "w-full rounded-[var(--radius-md)] border px-2.5 py-1 text-left transition-colors",
-                  loaded
-                    ? "border-border bg-surface-muted"
-                    : "border-transparent hover:bg-surface-muted",
-                )}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span className="truncate text-xs font-medium text-text">
-                    {ex.label}
-                  </span>
-                  {loaded ? (
-                    <span className="font-readout text-[9px] text-text-muted">
-                      loaded
-                    </span>
-                  ) : null}
-                </span>
-                <span className="mt-0.5 block truncate font-readout text-[10px] text-text-muted">
-                  {ex.description}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      )}
+
+      {open ? (
+        session.turns.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-text-muted">No turns.</p>
+        ) : (
+          <ul className="flex flex-col gap-0.5 border-t border-border p-1">
+            {session.turns.map((turn) => (
+              <li key={turn.id}>
+                <TurnNode
+                  turn={turn}
+                  active={turn.id === activeTurnId}
+                  open={openTurns.has(turn.id)}
+                  onToggle={() => onToggleTurn(turn.id)}
+                  onSelect={() => onSelectTurn(turn.id)}
+                  selectedStepId={selectedStepId}
+                  onSelectStep={onSelectStep}
+                />
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
     </div>
   );
 }
-
-/* --- turns of the active session ---------------------------------------- */
 
 function TurnNode({
   turn,
@@ -732,6 +616,55 @@ function SupabaseLoader({
       </div>
       {note ? <Note text={note} /> : null}
     </div>
+  );
+}
+
+/** Example source — one bundled example = one session. Click to load. */
+function ExampleLoader({
+  loadedSources,
+  onLoad,
+}: {
+  loadedSources: Set<string>;
+  onLoad: (text: string, filename?: string) => void;
+}) {
+  if (otelExamples.length === 0) {
+    return <Note text="No bundled examples." />;
+  }
+  return (
+    <ul className="flex flex-col gap-1">
+      {otelExamples.map((ex) => {
+        const loaded = loadedSources.has(exampleFilename(ex));
+        return (
+          <li key={ex.id}>
+            <button
+              type="button"
+              title={ex.description}
+              onClick={() => onLoad(exampleJsonl(ex), exampleFilename(ex))}
+              className={cn(
+                "w-full rounded-[var(--radius-md)] border px-2.5 py-1 text-left transition-colors",
+                loaded
+                  ? "border-border bg-surface-muted"
+                  : "border-border hover:bg-surface-muted",
+              )}
+            >
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-xs font-medium text-text">
+                  {ex.label}
+                </span>
+                {loaded ? (
+                  <span className="ml-auto shrink-0 font-readout text-[9px] text-text-muted">
+                    loaded
+                  </span>
+                ) : null}
+              </span>
+              <span className="mt-0.5 block truncate font-readout text-[10px] text-text-muted">
+                {ex.description}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
