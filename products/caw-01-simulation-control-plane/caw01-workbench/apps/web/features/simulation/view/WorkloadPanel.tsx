@@ -18,6 +18,17 @@ import {
   listStorageTraces,
   readStorageTrace,
 } from "@/features/workload/model/serverTraceActions";
+import {
+  otelExamples,
+  exampleJsonl,
+} from "@/features/workload/model/fixtures/otel-examples";
+
+type OtelExample = (typeof otelExamples)[number];
+
+/** Filename stamped as `session.source` when an example is loaded. */
+function exampleFilename(ex: OtelExample): string {
+  return `${ex.id}.main.jsonl`;
+}
 
 /* ----------------------------------------------------------------------- *
  * WorkloadPanel — the right rail shown when the Workload / C1 tab is active.
@@ -54,10 +65,17 @@ export function WorkloadPanel() {
 
   const [source, setSource] = useState<Source>("pc");
 
-  // Seed the bundled example once if nothing has been loaded yet.
+  // Seed the first bundled OTel example once if nothing has been loaded yet, so
+  // the default demo arrives in the user's real (OTel) format.
   useEffect(() => {
-    if (!session) loadExample();
-  }, [session, loadExample]);
+    if (session) return;
+    const first = otelExamples[0];
+    if (first) {
+      loadFromText(exampleJsonl(first), exampleFilename(first));
+    } else {
+      loadExample();
+    }
+  }, [session, loadFromText, loadExample]);
 
   const selectedTurn = session?.turns.find((t) => t.id === selectedTurnId) ?? null;
   const selectedStep =
@@ -78,6 +96,13 @@ export function WorkloadPanel() {
           </span>
         ) : null}
       </div>
+
+      {/* EXAMPLE TRACES --------------------------------------------------- */}
+      <ExampleTraces
+        currentSource={session?.source ?? null}
+        onLoad={loadFromText}
+        onCanonical={loadExample}
+      />
 
       {/* SOURCE selector -------------------------------------------------- */}
       <div className="shrink-0 border-b border-border p-2">
@@ -137,6 +162,67 @@ export function WorkloadPanel() {
       <div className="max-h-[45%] min-h-0 shrink-0 overflow-auto border-t border-border">
         <StepInspector step={selectedStep} />
       </div>
+    </div>
+  );
+}
+
+/* --- example traces ------------------------------------------------------ */
+
+function ExampleTraces({
+  currentSource,
+  onLoad,
+  onCanonical,
+}: {
+  currentSource: string | null;
+  onLoad: (text: string, filename?: string) => void;
+  onCanonical: () => void;
+}) {
+  return (
+    <div className="shrink-0 border-b border-border p-2">
+      <div className="flex items-center justify-between">
+        <span className="font-readout text-[10px] uppercase tracking-wide text-text-muted">
+          Example traces
+        </span>
+        <button
+          type="button"
+          onClick={onCanonical}
+          className="font-readout text-[10px] text-text-muted underline-offset-2 hover:text-text hover:underline"
+        >
+          canonical demo
+        </button>
+      </div>
+
+      {otelExamples.length === 0 ? (
+        <Note text="No bundled examples." />
+      ) : (
+        <ul className="mt-1.5 flex flex-col gap-1">
+          {otelExamples.map((ex) => {
+            const active = currentSource === exampleFilename(ex);
+            return (
+              <li key={ex.id}>
+                <button
+                  type="button"
+                  onClick={() => onLoad(exampleJsonl(ex), exampleFilename(ex))}
+                  aria-pressed={active}
+                  className={cn(
+                    "w-full rounded-[var(--radius-md)] border px-2.5 py-1.5 text-left transition-colors",
+                    active
+                      ? "border-accent bg-accent/10"
+                      : "border-transparent hover:bg-surface-muted",
+                  )}
+                >
+                  <span className="block truncate text-xs font-medium text-text">
+                    {ex.label}
+                  </span>
+                  <span className="mt-0.5 block truncate font-readout text-[10px] text-text-muted">
+                    {ex.description}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

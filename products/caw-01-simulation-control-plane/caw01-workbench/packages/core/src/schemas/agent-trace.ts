@@ -112,7 +112,10 @@ export function summariseTurn(steps: AgentStep[]): TurnSummary {
   return {
     stepCount: steps.length,
     toolCalls: steps.filter((s) => s.kind === "tool").length,
-    serverCalls: steps.filter((s) => s.kind === "server").length,
+    // server-side calls = anything executed on the server (llm/server steps run
+    // on the serving framework). The OTel adapter maps llm rows to kind "llm"
+    // with execLocation "server", so count by execLocation, not kind.
+    serverCalls: steps.filter((s) => s.execLocation === "server").length,
     tokensIn: num((s) => s.tokensIn) || undefined,
     tokensOut: num((s) => s.tokensOut) || undefined,
     totalMs: num((s) => s.durationMs) || undefined,
