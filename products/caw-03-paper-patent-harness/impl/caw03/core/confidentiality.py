@@ -124,7 +124,12 @@ class Ruleset:
 
     _PII = {
         "email": re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"),
-        "phone": re.compile(r"(?<!\d)(?:\+?\d[\d\-\s]{7,}\d)(?!\d)"),
+        # A phone-shaped number: optional +country code then THREE digit groups joined
+        # by real separators, on ONE line (no \s/newlines). Deliberately strict — a
+        # naive `\d[\d\-\s]{7,}\d` false-positives on DOIs, arXiv ids, and pdftotext
+        # column runs in numeric-heavy papers. Boundaries exclude identifier context.
+        "phone": re.compile(
+            r"(?<![\w.])(?:\+\d{1,3}[ .\-]?)?\(?\d{2,4}\)?[ .\-]\d{3,4}[ .\-]\d{3,4}(?![\w.])"),
     }
 
     def scan(self, text: str) -> list[dict]:

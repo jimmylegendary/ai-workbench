@@ -269,6 +269,15 @@ class Ledger:
         return ResultRef(result_id=r["result_id"], description=r["description"],
                          metrics=json.loads(r["metrics"])) if r else None
 
+    def get_bundle(self, bundle_id: str) -> dict | None:
+        r = self.conn.execute(
+            "SELECT * FROM bundle WHERE bundle_id=?", (bundle_id,)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d["provenance_manifest"] = json.loads(d.get("provenance_manifest") or "{}")
+        return d
+
     def bundle_digest_ok(self, bundle_id: str) -> bool:
         r = self.conn.execute(
             "SELECT digest_ok FROM bundle WHERE bundle_id=?", (bundle_id,)

@@ -26,6 +26,7 @@ def assemble_inputs(
     guidelines_md: str,
     title: str = "CAW-03 Draft",
     figure_paths: list[str] | None = None,
+    context: str = "",
 ) -> dict:
     ungated = [c.claim_id for c in claims if c.gate_status is not GateStatus.PASSED]
     if ungated:
@@ -39,7 +40,7 @@ def assemble_inputs(
     figs = inputs / "figures"
     figs.mkdir(parents=True, exist_ok=True)
 
-    idea = _build_idea(title, claims)
+    idea = _build_idea(title, claims, context)
     exp_log, cited_results = _build_experimental_log(claims, results)
 
     (inputs / "idea.md").write_text(idea, encoding="utf-8")
@@ -66,21 +67,25 @@ def assemble_inputs(
     }
 
 
-def _build_idea(title: str, claims: list[Claim]) -> str:
+def _build_idea(title: str, claims: list[Claim], context: str = "") -> str:
     methods = [c for c in claims if c.type in (ClaimType.P1, ClaimType.P2)]
+    p1 = [c for c in methods if c.type is ClaimType.P1]
     bullets = "\n".join(f"- ({c.type.value}) {c.statement}" for c in methods) or "- (none)"
+    hypotheses = "\n".join(f"- {c.statement}" for c in p1) or \
+        "- The gated claims hold under the reported experimental conditions."
+    topic = context.strip() or title
     return (
         f"# {title}\n\n"
         f"## Problem Statement\n\n"
-        f"This work is assembled from evidence-gated claims curated by the CAW-03 harness. "
-        f"Every claim below passed the evidence gate and traces to concrete CAW-02 evidence "
-        f"and/or CAW-01 results.\n\n"
-        f"## Core Hypothesis\n\n"
-        f"The gated method/tool claims below hold under the reported experimental conditions.\n\n"
+        f"This paper investigates {topic}. It is assembled from evidence-gated claims: "
+        f"every claim below passed CAW-03's evidence gate and traces to concrete experimental "
+        f"results, so each quantitative statement in the paper is backed by data (generated "
+        f"text is never treated as evidence).\n\n"
+        f"## Core Hypothesis\n\n{hypotheses}\n\n"
         f"## Proposed Methodology\n\n{bullets}\n\n"
         f"## Expected Contribution\n\n"
-        f"A defensible, provenance-carrying account of the gated claims, suitable for "
-        f"submission after review.\n"
+        f"A defensible, provenance-carrying account of the above claims — each reported number "
+        f"traceable to a result id — suitable for submission after review.\n"
     )
 
 

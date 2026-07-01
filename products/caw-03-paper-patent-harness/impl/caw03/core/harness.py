@@ -196,9 +196,12 @@ class Harness:
         guidelines = (Path(guidelines_path).read_text(encoding="utf-8")
                       if guidelines_path and Path(guidelines_path).exists() else "# Guidelines\n")
 
+        bundle = self.ledger.get_bundle(bundle_id) or {}
+        context = (bundle.get("provenance_manifest") or {}).get("topic", "")
         workspace = self._workspace(bundle_id)
         manifest = assemble_mod.assemble_inputs(
-            str(workspace), kept, results, template_tex, guidelines, title=title)
+            str(workspace), kept, results, template_tex, guidelines, title=title,
+            context=context)
 
         # Re-gate: recompute the effective labels over the claims ACTUALLY assembled.
         labels = conf_mod.classify(kept)

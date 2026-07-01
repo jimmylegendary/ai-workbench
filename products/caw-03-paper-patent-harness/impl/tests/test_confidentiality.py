@@ -64,6 +64,15 @@ class RedactionTest(unittest.TestCase):
         self.assertIn("codename", kinds)
         self.assertIn("customer", kinds)
 
+    def test_phone_precision_no_false_positive_on_academic_numbers(self):
+        rs = Ruleset()
+        # a real phone number is caught
+        self.assertTrue(
+            any(h["type"] == "phone" for h in scan_strings(["call +1 415-555-0123 now"], rs)))
+        # DOIs, arXiv ids, and pdftotext table-column runs must NOT trip the phone rule
+        clean = ["doi 068431-1189 ref", "128\n41\n14200\n\n92\n38\n14600", "arXiv:2401.01234"]
+        self.assertEqual([h for h in scan_strings(clean, rs) if h["type"] == "phone"], [])
+
 
 class DigestTest(unittest.TestCase):
     def _bundle(self, boundary):
