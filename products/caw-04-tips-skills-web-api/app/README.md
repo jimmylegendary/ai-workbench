@@ -57,10 +57,14 @@ curl 'http://localhost:3000/api/search?q=prompt' \
 `pnpm digest` (or the **Generate digest** button on `/me` for admin/curator) builds an AI-curated
 `Article` from recent content and "sends" it to active subscribers.
 
-- **AI intro**: uses Claude when `ANTHROPIC_API_KEY` is set (`ANTHROPIC_MODEL` optional); otherwise a
-  deterministic intro. Content is always assembled deterministically, so it works with no external services.
-- **Delivery**: logs to console in dev; set `LISTMONK_URL` (+ `LISTMONK_USER`/`LISTMONK_PASSWORD`/
-  `LISTMONK_LIST_ID`) to push a campaign to a self-hosted listmonk. Wire an email adapter for real sending.
+- **AI intro** (`AI_PROVIDER`): `openai` calls an OpenAI-compatible chat API
+  (`OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` — base URL is configurable for any compatible
+  endpoint); `cli` runs an agent CLI (`AI_CLI_COMMAND`) that reads the prompt on stdin and prints the
+  result. Unset → deterministic intro. Content is always assembled deterministically, so it works with no
+  external services.
+- **Delivery**: not SMTP. Set `N8N_WEBHOOK_URL` (+ optional `N8N_WEBHOOK_TOKEN`) and the send POSTs
+  `{ subject, summary, articleId, articleSlug, recipients }` to your n8n webhook, which performs the
+  actual email delivery (n8n webhook + MCP workflow). Dev (no URL) → console log.
 
 ## Design tokens (Open Design pipeline)
 
@@ -80,8 +84,10 @@ have drafts+versions (edit history; no semver/immutable versions).
 |-----|---------|
 | `DATABASE_URI` | `file:./caw04.db` (SQLite, local) or `postgres://…` (prod) |
 | `PAYLOAD_SECRET` | Payload auth/session secret |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | optional — AI digest intro via Claude |
-| `LISTMONK_URL`, `LISTMONK_USER`, `LISTMONK_PASSWORD`, `LISTMONK_LIST_ID` | optional — newsletter delivery |
+| `AI_PROVIDER` (`openai`\|`cli`) | selects the AI intro backend (unset = deterministic) |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | OpenAI-compatible AI intro |
+| `AI_CLI_COMMAND`, `AI_CLI_TIMEOUT_MS` | agent-CLI AI intro (prompt on stdin → result on stdout) |
+| `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_TOKEN` | newsletter delivery via n8n webhook |
 
 ## Scripts
 

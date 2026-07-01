@@ -12,58 +12,76 @@ interface DigestItem {
   summary?: string | null
 }
 
-// Optional Claude intro (only runs if ANTHROPIC_API_KEY is set); otherwise the
-// deterministic fallback is used. Kept dependency-free via fetch.
-async function claudeIntro(items: DigestItem[], dateStr: string): Promise<string | null> {
-  const key = process.env.ANTHROPIC_API_KEY
+// ── AI intro (provider-selectable) ─────────────────────────────────────────
+// AI_PROVIDER=openai  → OpenAI-compatible chat API (OPENAI_BASE_URL/OPENAI_MODEL)
+// AI_PROVIDER=cli     → an agent CLI that reads the prompt on stdin, prints result
+// (unset / error)     → deterministic fallback intro
+async function openaiIntro(prompt: string): Promise<string | null> {
+  const key = process.env.OPENAI_API_KEY
   if (!key) return null
-  const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5'
-  const list = items.map((i) => `- [${i.type}] ${i.title}${i.summary ? `: ${i.summary}` : ''}`).join('\n')
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const base = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model,
       max_tokens: 300,
-      messages: [
-        {
-          role: 'user',
-          content: `Write a 2-3 sentence friendly intro (Korean) for an internal AI knowledge digest dated ${dateStr}, covering these items:\n${list}`,
-        },
-      ],
+      messages: [{ role: 'user', content: prompt }],
     }),
   })
-  if (!res.ok) throw new Error(`anthropic ${res.status}`)
-  const data = (await res.json()) as { content?: Array<{ text?: string }> }
-  return data.content?.map((c) => c.text ?? '').join('').trim() || null
+  if (!res.ok) throw new Error(`openai ${res.status}`)
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+  return data.choices?.[0]?.message?.content?.trim() || null
 }
 
-async function pushToListmonk(subject: string, htmlBody: string, recipients: string[]) {
-  const base = process.env.LISTMONK_URL
-  if (!base) return
-  const auth = Buffer.from(
-    `${process.env.LISTMONK_USER || 'admin'}:${process.env.LISTMONK_PASSWORD || ''}`,
-  ).toString('base64')
-  // Seam: create a campaign in listmonk. Requires a configured list; see LISTMONK_LIST_ID.
-  await fetch(`${base.replace(/\/$/, '')}/api/campaigns`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', Authorization: `Basic ${auth}` },
-    body: JSON.stringify({
-      name: subject,
-      subject,
-      lists: [Number(process.env.LISTMONK_LIST_ID || 1)],
-      type: 'regular',
-      content_type: 'html',
-      body: htmlBody + `\n<!-- ${recipients.length} recipient(s) -->`,
-    }),
+async function cliIntro(prompt: string): Promise<string | null> {
+  const cmd = process.env.AI_CLI_COMMAND
+  if (!cmd) return null
+  const { spawn } = await import('node:child_process')
+  return new Promise<string | null>((resolve) => {
+    const child = spawn('sh', ['-c', cmd], { stdio: ['pipe', 'pipe', 'pipe'] })
+    let out = ''
+    const timeout = setTimeout(
+      () => {
+        try {
+          child.kill()
+        } catch {}
+        resolve(null)
+      },
+      Number(process.env.AI_CLI_TIMEOUT_MS || 60000),
+    )
+    child.stdout.on('data', (d) => (out += d))
+    child.on('error', () => {
+      clearTimeout(timeout)
+      resolve(null)
+    })
+    child.on('close', (code) => {
+      clearTimeout(timeout)
+      resolve(code === 0 && out.trim() ? out.trim() : null)
+    })
+    child.stdin.write(prompt)
+    child.stdin.end()
   })
 }
 
-/** Build recent content into an AI-curated Article ("selection"/digest). */
+async function generateIntro(items: DigestItem[], dateStr: string): Promise<string | null> {
+  const provider = process.env.AI_PROVIDER
+  if (!provider) return null
+  const list = items
+    .map((i) => `- [${i.type}] ${i.title}${i.summary ? `: ${i.summary}` : ''}`)
+    .join('\n')
+  const prompt = `Write a friendly 2-3 sentence intro (Korean) for an internal AI knowledge digest dated ${dateStr}, covering these items:\n${list}`
+  try {
+    if (provider === 'openai') return await openaiIntro(prompt)
+    if (provider === 'cli') return await cliIntro(prompt)
+  } catch (err) {
+    console.error('[digest] AI intro failed, using deterministic fallback:', err)
+  }
+  return null
+}
+
+// ── Build the digest Article ────────────────────────────────────────────────
 export async function generateDigest(payload: Payload, dateStr: string) {
   const results = await Promise.all(
     DIGEST_TYPES.map((type) =>
@@ -80,16 +98,10 @@ export async function generateDigest(payload: Payload, dateStr: string) {
   )
 
   const title = `AI 다이제스트 — ${dateStr}`
-  const lines = items.map(
-    (i) => `• [${i.type}] ${i.title}${i.summary ? ` — ${i.summary}` : ''}`,
-  )
+  const lines = items.map((i) => `• [${i.type}] ${i.title}${i.summary ? ` — ${i.summary}` : ''}`)
   let intro = `이번 다이제스트에는 ${items.length}개의 새로운 항목이 있습니다.`
-  try {
-    const ai = await claudeIntro(items, dateStr)
-    if (ai) intro = ai
-  } catch {
-    /* fall back to deterministic intro */
-  }
+  const ai = await generateIntro(items, dateStr)
+  if (ai) intro = ai
   const bodyText = [intro, '', ...lines].join('\n')
 
   const article = await payload.create({
@@ -107,10 +119,10 @@ export async function generateDigest(payload: Payload, dateStr: string) {
   return article
 }
 
-/** "Send" the digest to active subscribers (dev: console; prod: listmonk seam). */
+// ── Delivery via n8n webhook (webhook + MCP workflow handles the actual email) ─
 export async function sendDigest(
   payload: Payload,
-  article: { id: number | string; title: string; summary?: string | null },
+  article: { id: number | string; title: string; summary?: string | null; slug?: string },
 ) {
   const subs = await payload.find({
     collection: 'subscriptions',
@@ -122,15 +134,29 @@ export async function sendDigest(
     .map((s) => (s as { email?: string | null }).email)
     .filter((e): e is string => Boolean(e))
 
-  if (process.env.LISTMONK_URL) {
+  const body = {
+    subject: article.title,
+    summary: article.summary ?? '',
+    articleId: article.id,
+    articleSlug: article.slug,
+    recipients,
+  }
+
+  const webhook = process.env.N8N_WEBHOOK_URL
+  if (webhook) {
     try {
-      await pushToListmonk(article.title, `<p>${article.summary ?? ''}</p>`, recipients)
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      if (process.env.N8N_WEBHOOK_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.N8N_WEBHOOK_TOKEN}`
+      }
+      const res = await fetch(webhook, { method: 'POST', headers, body: JSON.stringify(body) })
+      if (!res.ok) console.error('[newsletter] n8n webhook non-2xx:', res.status)
     } catch (err) {
-      console.error('[newsletter] listmonk send failed:', err)
+      console.error('[newsletter] n8n webhook failed:', err)
     }
   } else {
     console.log(
-      `[newsletter] (dev) "${article.title}" -> ${recipients.length} subscriber(s): ${recipients.join(', ') || '(none)'}`,
+      `[newsletter] (dev, no N8N_WEBHOOK_URL) "${article.title}" -> ${recipients.length} subscriber(s): ${recipients.join(', ') || '(none)'}`,
     )
   }
 
