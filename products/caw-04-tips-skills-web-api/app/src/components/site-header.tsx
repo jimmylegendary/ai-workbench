@@ -60,6 +60,9 @@ export function SiteHeader({
           <LanguageSwitcher locale={locale} />
           {user ? (
             <>
+              <a href="/new">
+                <Button size="sm">{t.create.new}</Button>
+              </a>
               <a href="/me">
                 <Button size="sm" variant={active === 'me' ? 'outline' : 'ghost'}>
                   {t.common.dashboard}
