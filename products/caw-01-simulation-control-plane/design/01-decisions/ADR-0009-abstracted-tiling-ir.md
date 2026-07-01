@@ -21,6 +21,14 @@ ADR fixes **what a strategy id actually *contains*** for architecture exploratio
 HW-schema-parameterized tiling descriptor** — effectively a small IR — that a kernel/memory cost model can
 consume to estimate kernel time, memory-tier traffic and footprint **without** a real compiled schedule.
 
+**Core principle (refined 2026-07): abstract by folding *repetition*, not by dropping to coarse instructions.**
+A tiled kernel re-executes the *same* tile computation across its iteration space. The IR captures that repeated
+**tile-unit exactly** (so accuracy is preserved) and folds the **redundant repetition** into parametric
+iteration/repetition counts. It is emphatically **not** an instruction-level unroll of every op, **nor** a lossy
+coarse estimate. The engineering task is precisely to **find what is regular/repeated (hence abstractable) vs
+what must stay explicit** (irregular/boundary work) — so the abstraction gives up compactness *only* where
+folding would cost accuracy.
+
 It does **not** define the kernel/memory *cost model itself* (that is a runbook + open question), the IR
 storage tech ([ADR-0002](./ADR-0002-data-layer.md)), or the network sim (ASTRA-sim, [ADR-0005](./ADR-0005-trace-pipeline.md)).
 
@@ -61,12 +69,17 @@ storage tech ([ADR-0002](./ADR-0002-data-layer.md)), or the network sim (ASTRA-s
 descriptor attached to a Chakra op via the L2 op-id side-channel. Tile factors are chosen by a cost-guided
 heuristic over the feasible set the HW schema implies; a kernel/memory analytical model consumes the plan to
 produce per-op compute time + per-tier memory traffic/footprint, which annotate the op's Chakra/L0 node.
-ASTRA-sim still times only the network. It is exploration-grade, never a real schedule.**
+ASTRA-sim still times only the network. It is exploration-grade, never a real schedule — and it folds the
+repeated tile-unit + counts (irregular remainders kept explicit) rather than unrolling instructions.**
 
 ### `AbstractTilingPlan` — representation sketch (to be finalized with the engine)
 
 Per compute op (matmul / attention / conv / elementwise / reduction / collective-adjacent), keyed by Chakra op id:
 
+- **repeated tile-unit + repetition counts** — the compute done for **one** tile (its op mix, per-tier bytes),
+  captured **once and exactly**, plus how many times the iteration space repeats it, plus any **irregular
+  remainder/boundary** tiles kept explicit (tail tiles, masked regions). This is where the accuracy-preserving
+  **repetition folding** lives — cost the unit exactly × count the repeats; never an instruction-level unroll.
 - **iteration space** — the op's logical loop dims (e.g. matmul `M,N,K`; attention `B,H,S,D`), as symbols.
 - **tile factors per dim** — the block sizes, expressed as **functions of HW-schema symbols** rather than
   constants, e.g. `tile.M = f(matrix_unit.m, num_sm)`, `tile.K = fit(shared_mem_bytes, dtype)`. Multi-level
@@ -111,6 +124,9 @@ the analytical monolithic cost.
    occupancy limits) — extend [hw-schema](../04-data-layer/hw-schema.md) accordingly.
 5. `TODO` Memory-tier taxonomy: how the plan names tiers so it stays HW-agnostic across GPU/CXL/CXMT/custom.
 6. `TODO` Calibration/validation without real silicon — synthetic self-consistency + trust ladder plan.
+7. `TODO` **Repetition detection** — how to identify the abstractable repeated tile-unit vs the irregular /
+   boundary work that must stay explicit, so folding never trades away accuracy (tail tiles, masked attention,
+   dynamic shapes, data-dependent branches). This is the crux of the "accurate yet abstracted" requirement.
 
 ## Implications for runbooks
 
