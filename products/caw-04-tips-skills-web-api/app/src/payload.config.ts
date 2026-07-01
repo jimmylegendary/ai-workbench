@@ -17,6 +17,7 @@ import { Favorites } from './collections/Favorites'
 import { Views } from './collections/Views'
 import { Subscriptions } from './collections/Subscriptions'
 import { searchContent } from './lib/search'
+import { generateDigest, sendDigest } from './lib/digest'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -63,5 +64,36 @@ export default buildConfig({
       },
     },
   ],
+  jobs: {
+    tasks: [
+      {
+        slug: 'digest',
+        // schedule ENQUEUES on the 'digests' queue per DIGEST_CRON (default daily midnight).
+        // It only fires when a runner with the same queue handles schedules (autoRun below,
+        // or the HTTP runner / bin worker in prod).
+        schedule: [{ cron: process.env.DIGEST_CRON || '0 0 * * *', queue: 'digests' }],
+        handler: async ({ req }) => {
+          const dateStr = new Date().toISOString().slice(0, 10)
+          const article = await generateDigest(req.payload, dateStr)
+          const res = await sendDigest(req.payload, article)
+          req.payload.logger.info(`[digest] ${article.slug} -> ${res.recipients} subscriber(s)`)
+          return {}
+        },
+      },
+    ],
+    // In-process cron (single long-lived node process only). Off by default so local dev
+    // does not auto-generate digests; enable with ENABLE_DIGEST_CRON=true.
+    ...(process.env.ENABLE_DIGEST_CRON === 'true'
+      ? { autoRun: [{ cron: '* * * * *', queue: 'digests' }] }
+      : {}),
+    // Guards GET /api/payload-jobs/run (use with Vercel Cron / external cron in prod/serverless).
+    access: {
+      run: ({ req }) => {
+        if (req.user) return true
+        const auth = req.headers.get('authorization')
+        return Boolean(process.env.CRON_SECRET) && auth === `Bearer ${process.env.CRON_SECRET}`
+      },
+    },
+  },
   plugins: [],
 })

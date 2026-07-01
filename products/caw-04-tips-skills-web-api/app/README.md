@@ -32,6 +32,8 @@ pnpm dev                  # http://localhost:3000  (admin: /admin)
 - **Web authoring**: `/new` → `/new/{skills|tips|news}` branded create forms (login-gated)
 - **Search**: header box + `/search?q=` (cross-type)
 - **Auth**: `/login`, `/invite` (admin generates a link), `/set-password?token=`, `/forgot-password`
+- **Edit/delete**: author or staff, from the item detail page (`/edit/{type}/{id}`)
+- **Agent/feeds**: `/index.json` (catalog), `/llms.txt`, `/rss.xml`
 - **Admin**: Payload admin at `/admin`
 
 ## Agent (write + search) API
@@ -88,6 +90,8 @@ have drafts+versions (edit history; no semver/immutable versions).
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | OpenAI-compatible AI intro |
 | `AI_CLI_COMMAND`, `AI_CLI_TIMEOUT_MS` | agent-CLI AI intro (prompt on stdin → result on stdout) |
 | `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_TOKEN` | newsletter delivery via n8n webhook |
+| `ENABLE_DIGEST_CRON`, `DIGEST_CRON` | in-process daily digest cron (single long-lived server) |
+| `CRON_SECRET` | bearer for `GET /api/payload-jobs/run?queue=digests` (serverless/external cron) |
 
 ## Scripts
 
@@ -112,5 +116,8 @@ src/
 
 ## Not yet wired (roadmap)
 
-Real email delivery (adapter/listmonk in prod) · scheduled digest (cron/Payload Jobs) · content editing
-from the web (create exists; edit via admin) · richer search (Postgres FTS / Meilisearch) · view dedup by session.
+Actual email send (connect the n8n webhook per `design/10-runbooks/RB-newsletter-n8n-integration.md`) ·
+richer search (Postgres FTS / Meilisearch) · comments/threads · token-based one-click unsubscribe.
+
+Done recently: web edit/delete of own content, scheduled digest (Payload Jobs / cron + HTTP runner),
+view dedup, tag filtering + pagination, agent endpoints (`/index.json`, `/llms.txt`, `/rss.xml`).

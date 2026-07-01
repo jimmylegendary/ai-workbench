@@ -108,7 +108,7 @@ export async function generateDigest(payload: Payload, dateStr: string) {
     collection: 'articles',
     data: {
       title,
-      slug: `digest-${dateStr}-${items.length}${lines.length}`,
+      slug: `digest-${dateStr}-${Date.now().toString(36).slice(-5)}`,
       summary: intro,
       body: plaintextToLexical(bodyText),
       curatedItems: items.map((i) => ({ relationTo: i.type, value: i.id })),
