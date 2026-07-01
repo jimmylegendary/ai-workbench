@@ -1,0 +1,128 @@
+import { headers as nextHeaders } from 'next/headers'
+import { notFound } from 'next/navigation'
+import { getPayload } from 'payload'
+
+import config from '@/payload.config'
+import { getEngagement } from '@/lib/engagement'
+import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { EngagementBar } from '@/components/engagement-bar'
+import { SiteHeader } from '@/components/site-header'
+import { ViewPing } from '@/components/view-ping'
+
+export const dynamic = 'force-dynamic'
+
+export default async function SkillDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}) {
+  const { slug } = await params
+  const payload = await getPayload({ config: await config })
+  const { user } = await payload.auth({ headers: await nextHeaders() })
+  const { docs } = await payload.find({
+    collection: 'skills',
+    where: { slug: { equals: slug } },
+    limit: 1,
+    depth: 0,
+  })
+  const skill = docs[0]
+  if (!skill) notFound()
+
+  const eng = await getEngagement(payload, 'skills', skill.id, user?.id)
+
+  return (
+    <div className="min-h-dvh">
+      <SiteHeader userEmail={user?.email} />
+      <ViewPing relationTo="skills" id={skill.id} />
+
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <a href="/" className="text-sm text-[var(--color-text-muted)] hover:text-text">
+          ← Skills
+        </a>
+
+        <div className="mt-4 mb-2 flex items-start justify-between gap-3">
+          <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{skill.title}</h1>
+          {skill.provenance?.validated ? (
+            <Badge variant="public">validated</Badge>
+          ) : (
+            <Badge variant="outline">draft</Badge>
+          )}
+        </div>
+        {skill.summary ? (
+          <p className="text-[var(--color-text-muted)]">{skill.summary}</p>
+        ) : null}
+
+        {skill.tags && skill.tags.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {skill.tags.map((t, i) => (
+              <Badge key={i} variant="accent">
+                {t.tag}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-6 border-y border-border py-3">
+          <EngagementBar
+            relationTo="skills"
+            id={skill.id}
+            initial={eng}
+            canInteract={Boolean(user)}
+          />
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <MetaList title="Inputs" items={(skill.inputs ?? []).map(fmtIO)} />
+          <MetaList title="Outputs" items={(skill.outputs ?? []).map(fmtIO)} />
+          <MetaList
+            title="Preconditions"
+            items={(skill.preconditions ?? []).map((p) => p.value ?? '')}
+          />
+          <Card>
+            <h3 className="mb-2 text-[13px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              Provenance
+            </h3>
+            <dl className="space-y-1 text-sm">
+              <Row k="Source" v={skill.provenance?.sourceProduct} />
+              <Row k="Ref" v={skill.provenance?.sourceRef} />
+              <Row k="Validated" v={skill.provenance?.validated ? 'yes' : 'no'} />
+            </dl>
+          </Card>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function fmtIO(io: { name?: string | null; type?: string | null; required?: boolean | null }) {
+  return `${io.name}${io.type ? `: ${io.type}` : ''}${io.required ? ' (required)' : ''}`
+}
+
+function MetaList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <Card>
+      <h3 className="mb-2 text-[13px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+        {title}
+      </h3>
+      {items.length ? (
+        <ul className="list-inside list-disc space-y-1 text-sm">
+          {items.map((it, i) => (
+            <li key={i}>{it}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-[var(--color-text-muted)]">—</p>
+      )}
+    </Card>
+  )
+}
+
+function Row({ k, v }: { k: string; v?: string | null }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-[var(--color-text-muted)]">{k}</dt>
+      <dd className="font-mono text-xs">{v || '—'}</dd>
+    </div>
+  )
+}

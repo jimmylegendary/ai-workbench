@@ -1,62 +1,36 @@
+import { headers as nextHeaders } from 'next/headers'
 import { getPayload } from 'payload'
-import { Eye, Heart, Star } from 'lucide-react'
 
 import config from '@/payload.config'
 import type { Skill } from '@/payload-types'
+import { emptyEngState, getEngagementMap } from '@/lib/engagement'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { EngagementBar } from '@/components/engagement-bar'
+import { SiteHeader } from '@/components/site-header'
 
 export const dynamic = 'force-dynamic'
 
-const NAV = [
-  { label: 'Skills', href: '/', active: true },
-  { label: 'Tips', href: '/tips' },
-  { label: 'News', href: '/news' },
-]
-
 export default async function HomePage() {
   const payload = await getPayload({ config: await config })
+  const { user } = await payload.auth({ headers: await nextHeaders() })
   const { docs: skills } = await payload.find({
     collection: 'skills',
     limit: 24,
     depth: 0,
     sort: '-updatedAt',
   })
+  const eng = await getEngagementMap(
+    payload,
+    'skills',
+    skills.map((s) => s.id),
+    user?.id,
+  )
 
   return (
     <div className="min-h-dvh">
-      {/* top nav */}
-      <header className="sticky top-0 z-10 border-b border-border bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-          <div className="flex items-center gap-6">
-            <span className="text-sm font-semibold tracking-tight">
-              CAW-04 · <span className="text-[var(--color-primary)]">AI Tips &amp; Skills</span>
-            </span>
-            <nav className="hidden items-center gap-1 sm:flex">
-              {NAV.map((n) => (
-                <a
-                  key={n.label}
-                  href={n.href}
-                  className={
-                    'rounded-md px-3 py-1.5 text-sm ' +
-                    (n.active
-                      ? 'bg-[var(--color-surface-muted)] font-medium text-text'
-                      : 'text-[var(--color-text-muted)] hover:text-text')
-                  }
-                >
-                  {n.label}
-                </a>
-              ))}
-            </nav>
-          </div>
-          <a href="/admin">
-            <Button size="sm" variant="outline">
-              Sign in
-            </Button>
-          </a>
-        </div>
-      </header>
+      <SiteHeader userEmail={user?.email} active="Skills" />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="mb-8">
@@ -84,7 +58,15 @@ export default async function HomePage() {
             {skills.map((skill: Skill) => (
               <Card key={skill.id} className="flex flex-col">
                 <div className="mb-2 flex items-start justify-between gap-3">
-                  <h2 className="text-[19px] font-semibold leading-[26px]">{skill.title}</h2>
+                  <h2 className="text-[19px] font-semibold leading-[26px]">
+                    {skill.slug ? (
+                      <a href={`/skills/${skill.slug}`} className="hover:underline">
+                        {skill.title}
+                      </a>
+                    ) : (
+                      skill.title
+                    )}
+                  </h2>
                   {skill.provenance?.validated ? (
                     <Badge variant="public">validated</Badge>
                   ) : (
@@ -108,20 +90,23 @@ export default async function HomePage() {
                 ) : null}
 
                 <div className="mt-auto flex items-center justify-between border-t border-border pt-3">
-                  <div className="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
-                    <span className="inline-flex items-center gap-1">
-                      <Heart className="size-3.5" /> 0
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Star className="size-3.5" /> 0
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Eye className="size-3.5" /> 0
-                    </span>
-                  </div>
-                  <Button size="sm" variant="ghost">
-                    View
-                  </Button>
+                  <EngagementBar
+                    relationTo="skills"
+                    id={skill.id}
+                    initial={eng.get(String(skill.id)) ?? emptyEngState()}
+                    canInteract={Boolean(user)}
+                  />
+                  {skill.slug ? (
+                    <a href={`/skills/${skill.slug}`}>
+                      <Button size="sm" variant="ghost">
+                        View
+                      </Button>
+                    </a>
+                  ) : (
+                    <Button size="sm" variant="ghost" disabled>
+                      View
+                    </Button>
+                  )}
                 </div>
               </Card>
             ))}
