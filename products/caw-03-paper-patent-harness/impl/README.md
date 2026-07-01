@@ -12,6 +12,28 @@ runnable. PaperOrchestra is wired as the real writing engine behind its port; th
 zero-dependency `minimal-latex` engine is the slice default so the pipeline always
 produces an openable PDF.
 
+## Verifying the work (for the reviewer)
+
+Every phase adds re-runnable proof; you never have to take "it works" on trust.
+
+```bash
+bash products/caw-03-paper-patent-harness/impl/verify.sh
+```
+
+`verify.sh` compiles the package, runs the full test suite, and drives every acceptance
+scenario end-to-end through the CLI, printing a PASS/FAIL board mapped to the governance
+guarantee each check proves (exit 0 = all green). Requires only Python 3.10+.
+
+Three layers of verification, all in the repo you pull:
+
+1. **Tests are the contract** — `python -m unittest discover -s tests -v`. Each phase adds
+   tests that encode its invariants (evidence gate, `decide()` matrix, fail-closed, egress
+   re-sweep, hash chain, …). Green = the invariants hold, independently checkable.
+2. **CLI is the human-legible proof** — run the scenarios yourself (`caw03 run`, `status`,
+   `events`, `interlocks`) and read the output.
+3. **git diff is the code review** — the whole implementation is small, stdlib-only, and
+   commented against the ADRs it implements.
+
 ## What it enforces (the governance, not a chatbot)
 
 - **Evidence gate (ADR-0003):** a claim can be drafted only if it carries enough
@@ -20,8 +42,11 @@ produces an openable PDF.
   profile can relax (enforced in `core/gate.py`; also declared in `schema/ledger.cue`).
 - **Structural block (ADR-0003 §6):** `core/assemble.py` refuses to assemble inputs
   for any claim that did not pass the gate. There is no ungated → engine code path.
-- **Patent-first interlock (slice form):** `P3` (future-device) claims are
-  default-denied for *paper* drafting until an interlock is released.
+- **Patent-first interlock (ADR-0004, L3a):** a patent-sensitive claim (`P3`) gets a
+  **HELD** interlock at gate time and is default-denied for *paper* drafting; a human
+  `release-interlock` (the patent has been filed/cleared) lets it pass the next gate.
+  The release is a human-attributed, hash-chained audit event (`caw03 interlocks` /
+  `release-interlock`).
 - **Confidentiality gate (ADR-0007, L6):** CAW-02 `boundary`(public⊂internal⊂confidential)
   × `visibility`(team|private) labels, inherited verbatim and **fail-closed** (missing
   label ⇒ confidential/private). Two enforcement points: **ingest classification**
@@ -158,10 +183,12 @@ examples/bundle_demo/   # a CAW-02-style bundle fixture (gated-passable + a bloc
   input assembly, `minimal-latex`/`paperorchestra` engines, gated-claim → PDF.
 - **L6 confidentiality:** boundary/visibility labels, two-point gate (ingest classify +
   egress `decide()` + redaction re-sweep), fail-closed, hash-chained lifecycle log.
+- **L3a patent-first interlock:** HELD-by-default for patent-sensitive claims + human
+  `release-interlock`, audited.
 
 ## Not built yet (later runbooks)
 
-Real patent screening/drafting + interlock **release** (L3 — only the P3 gate default-deny
-exists), novelty/radar (L5 — PaperQA2/OpenAlex), and the API/MCP/review-UI surfaces (L8 —
-only the CLI exists). Work order: **L6 (done) → L3(a) interlock → L5 novelty → L3(b) patent
-drafting → L8 surfaces.** See `../design/10-runbooks/`.
+Real patent **screening/drafting** (L3b — prior-art + patentability + a draft path; only
+the interlock exists), novelty/radar (L5 — PaperQA2/OpenAlex), and the API/MCP/review-UI
+surfaces (L8 — only the CLI exists). Work order: **L6 ✓ → L3(a) ✓ → L5 novelty → L3(b)
+patent drafting → L8 surfaces.** See `../design/10-runbooks/`.

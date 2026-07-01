@@ -95,6 +95,16 @@ class BlockedReason(str, Enum):
     ENGINE = "ENGINE"
 
 
+class InterlockStatus(str, Enum):
+    """Patent-first interlock state per patent-sensitive claim (UC-3 / data-model
+    InterlockState). HELD = default-deny paper drafting until a human releases it
+    (i.e. the patent has been filed / cleared); RELEASED = disclosure permitted."""
+
+    NONE = "none"
+    HELD = "held"
+    RELEASED = "released"
+
+
 class Lifecycle(str, Enum):
     """Artifact lifecycle board (ADR-0001)."""
 
@@ -144,6 +154,8 @@ class Claim:
     # a claim with no/unresolvable label is treated as confidential/private.
     boundary: Boundary = Boundary.CONFIDENTIAL
     visibility: Visibility = Visibility.PRIVATE
+    # Patent-first interlock status, loaded from the ledger before gating.
+    interlock_status: InterlockStatus = InterlockStatus.NONE
 
     def admissible_evidence(self) -> list[Evidence]:
         return [e for e in self.evidence if e.is_admissible()]

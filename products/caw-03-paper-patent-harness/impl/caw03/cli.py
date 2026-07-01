@@ -146,6 +146,33 @@ def cmd_events(args) -> int:
         h.close()
 
 
+def cmd_interlocks(args) -> int:
+    h = _harness(args)
+    try:
+        rows = h.list_interlocks(args.bundle_id)
+        if not rows:
+            print("(no interlocks)")
+        for r in rows:
+            extra = f"  reason={r['reason']}" if r.get("reason") else ""
+            print(f"  {r['claim_id']}  status={r['status']}  "
+                  f"patent_first={bool(r['patent_first'])}{extra}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_release_interlock(args) -> int:
+    h = _harness(args)
+    try:
+        r = h.release_interlock(args.claim_id, reason=args.reason)
+        print(f"interlock released for {r['claim_id']}: {r['previous']} → {r['status']} "
+              f"(by {r['actor']})")
+        print("  re-run `gate` to let the released claim into a paper")
+        return 0
+    finally:
+        h.close()
+
+
 def cmd_adapters(args) -> int:
     h = _harness(args)
     try:
@@ -260,6 +287,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("events", help="hash-chained lifecycle event log + verify")
     s.set_defaults(func=cmd_events)
+
+    s = sub.add_parser("interlocks", help="list patent-first interlocks")
+    s.add_argument("bundle_id", nargs="?", default=None)
+    s.set_defaults(func=cmd_interlocks)
+
+    s = sub.add_parser("release-interlock", help="release a patent-first interlock (human)")
+    s.add_argument("claim_id")
+    s.add_argument("--reason", default=None)
+    s.set_defaults(func=cmd_release_interlock)
 
     s = sub.add_parser("adapters", help="list registered adapters + preflight")
     s.set_defaults(func=cmd_adapters)

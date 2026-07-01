@@ -23,6 +23,7 @@ from .models import (
     ConfidentialityTrack,
     GateReport,
     GateStatus,
+    InterlockStatus,
     Lifecycle,
     Visibility,
 )
@@ -124,6 +125,12 @@ class Harness:
         if not claims:
             raise ValueError(f"no claims for bundle {bundle_id!r} (import it first)")
         profile = load_gate_profile(self.config.gate_profile)
+        # Patent-first interlock (L3a): a patent-sensitive claim gets a HELD interlock
+        # at gate time; the gate then reads the current status (HELD → default-deny).
+        for c in claims:
+            if c.type.value in profile.patent_sensitive_types:
+                self.ledger.ensure_interlock(c.claim_id, _now())
+            c.interlock_status = self.ledger.get_interlock_status(c.claim_id)
         report = gate_mod.run_gate(claims, profile, bundle_id)
 
         for r in report.results:
@@ -402,6 +409,29 @@ class Harness:
         return {"artifact_id": art_id, "checklist": checklist, "verdict": verdict,
                 "note": "publish/file is a human-owned transition; run `publish` to run the "
                         "egress gate (confidentiality decide() + redaction re-sweep)"}
+
+    # -- op: release_interlock / list_interlocks (L3a) -----------------------
+    def release_interlock(self, claim_id: str, actor: str = "human:cli",
+                          reason: str | None = None) -> dict:
+        """Human-attributed release of a patent-first interlock (the patent has been
+        filed/cleared). The claim can then pass the gate into a paper on the next
+        run_gate. Recorded in the hash-chained audit log."""
+        il = self.ledger.get_interlock(claim_id)
+        if not il:
+            raise RuntimeError(
+                f"no interlock for claim {claim_id!r} — it is not patent-sensitive, "
+                f"or the bundle has not been gated yet")
+        prev = il["status"]
+        self.ledger.set_interlock_status(
+            claim_id, InterlockStatus.RELEASED, actor, reason, _now())
+        self.ledger.append_lifecycle_event(
+            f"interlock:{claim_id}", prev, InterlockStatus.RELEASED.value,
+            actor=actor, now=_now(), reason=reason, detail={"claim_id": claim_id})
+        return {"claim_id": claim_id, "status": InterlockStatus.RELEASED.value,
+                "previous": prev, "actor": actor}
+
+    def list_interlocks(self, bundle_id: str | None = None) -> list[dict]:
+        return self.ledger.list_interlocks(bundle_id)
 
     # -- op: get_lifecycle ---------------------------------------------------
     def get_lifecycle(self) -> list[dict]:

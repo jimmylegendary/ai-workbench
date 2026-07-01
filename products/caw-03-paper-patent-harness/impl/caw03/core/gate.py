@@ -23,6 +23,7 @@ from .models import (
     GateProfile,
     GateReport,
     GateStatus,
+    InterlockStatus,
 )
 
 CUE_SCHEMA = Path(__file__).parent.parent / "schema" / "ledger.cue"
@@ -59,13 +60,15 @@ def evaluate_claim(claim: Claim, profile: GateProfile) -> ClaimGateResult:
             f"{claim.type.value} requires a CAW-01 result ref for traceable numbers, none present"
         )
 
-    # 4. Patent-first interlock: patent-sensitive types cannot enter a PAPER draft
-    #    until an interlock is released (v1 slice: default-deny at the gate).
+    # 4. Patent-first interlock (UC-3): a patent-sensitive claim is default-denied for
+    #    paper drafting while its interlock is HELD; a human `release_interlock` (i.e.
+    #    the patent has been filed/cleared) lets it through on the next gate.
     if claim.type.value in profile.patent_sensitive_types:
-        reasons.append(
-            f"patent-sensitive ({claim.type.value}): default-deny for paper drafting until "
-            f"the patent-first interlock is released"
-        )
+        if claim.interlock_status is not InterlockStatus.RELEASED:
+            reasons.append(
+                f"patent-first interlock HELD (patent-sensitive {claim.type.value}): "
+                f"release the interlock before paper drafting"
+            )
 
     status = GateStatus.PASSED if not reasons else GateStatus.BLOCKED
     return ClaimGateResult(

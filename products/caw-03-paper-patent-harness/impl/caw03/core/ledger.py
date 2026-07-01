@@ -19,6 +19,7 @@ from .models import (
     Evidence,
     EvidenceKind,
     GateStatus,
+    InterlockStatus,
     Lifecycle,
     RawBundle,
     ResultRef,
@@ -92,6 +93,14 @@ CREATE TABLE IF NOT EXISTS lifecycle_event (
     prev_hash TEXT,
     hash TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS interlock (
+    claim_id TEXT PRIMARY KEY,
+    patent_first INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'held',
+    reason TEXT,
+    actor TEXT,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS engine_run (
     id TEXT PRIMARY KEY,
@@ -386,3 +395,40 @@ class Ledger:
                 return False
             prev_hash = r["hash"]
         return True
+
+    # ---- patent-first interlock (L3a) --------------------------------------
+    def ensure_interlock(self, claim_id: str, now: str, patent_first: bool = True) -> None:
+        exists = self.conn.execute(
+            "SELECT 1 FROM interlock WHERE claim_id=?", (claim_id,)).fetchone()
+        if not exists:
+            self.conn.execute(
+                "INSERT INTO interlock (claim_id, patent_first, status, updated_at) "
+                "VALUES (?,?,?,?)",
+                (claim_id, int(patent_first), InterlockStatus.HELD.value, now))
+            self.conn.commit()
+
+    def get_interlock_status(self, claim_id: str) -> InterlockStatus:
+        r = self.conn.execute(
+            "SELECT status FROM interlock WHERE claim_id=?", (claim_id,)).fetchone()
+        return InterlockStatus(r["status"]) if r else InterlockStatus.NONE
+
+    def get_interlock(self, claim_id: str) -> dict | None:
+        r = self.conn.execute(
+            "SELECT * FROM interlock WHERE claim_id=?", (claim_id,)).fetchone()
+        return dict(r) if r else None
+
+    def set_interlock_status(self, claim_id: str, status: InterlockStatus,
+                             actor: str, reason: str | None, now: str) -> None:
+        self.conn.execute(
+            "UPDATE interlock SET status=?, actor=?, reason=?, updated_at=? WHERE claim_id=?",
+            (status.value, actor, reason, now, claim_id))
+        self.conn.commit()
+
+    def list_interlocks(self, bundle_id: str | None = None) -> list[dict]:
+        if bundle_id:
+            rows = self.conn.execute(
+                "SELECT i.* FROM interlock i JOIN claim c ON c.claim_id=i.claim_id "
+                "WHERE c.bundle_id=? ORDER BY i.claim_id", (bundle_id,)).fetchall()
+        else:
+            rows = self.conn.execute("SELECT * FROM interlock ORDER BY claim_id").fetchall()
+        return [dict(r) for r in rows]
