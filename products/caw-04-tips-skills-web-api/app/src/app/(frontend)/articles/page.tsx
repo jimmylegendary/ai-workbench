@@ -6,20 +6,29 @@ import { emptyEngState, getEngagementMap } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { ContentCard } from '@/components/content-card'
+import { Pager } from '@/components/pager'
 import { SiteHeader } from '@/components/site-header'
 
 export const dynamic = 'force-dynamic'
 
-export default async function ArticlesPage() {
+export default async function ArticlesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>
+}) {
+  const { page: pageStr } = await searchParams
+  const page = Math.max(1, Number(pageStr) || 1)
   const { locale, t } = await getDict()
   const payload = await getPayload({ config: await config })
   const { user } = await payload.auth({ headers: await nextHeaders() })
-  const { docs } = await payload.find({
+  const result = await payload.find({
     collection: 'articles',
-    limit: 24,
+    limit: 12,
+    page,
     depth: 0,
     sort: '-publishedAt',
   })
+  const docs = result.docs
   const eng = await getEngagementMap(payload, 'articles', docs.map((d) => d.id), user?.id)
 
   return (
@@ -35,6 +44,7 @@ export default async function ArticlesPage() {
         {docs.length === 0 ? (
           <p className="text-sm text-[var(--color-text-muted)]">{t.dashboard.empty}</p>
         ) : (
+          <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {docs.map((d) => (
               <ContentCard
@@ -58,6 +68,8 @@ export default async function ArticlesPage() {
               />
             ))}
           </div>
+          <Pager basePath="/articles" page={page} totalPages={result.totalPages} />
+          </>
         )}
       </main>
     </div>

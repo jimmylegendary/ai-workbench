@@ -1,20 +1,30 @@
 import { headers as nextHeaders } from 'next/headers'
 import { getPayload } from 'payload'
+import type { Where } from 'payload'
 
 import config from '@/payload.config'
 import { emptyEngState, getEngagementMap } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { ContentCard } from '@/components/content-card'
+import { Pager } from '@/components/pager'
 import { SiteHeader } from '@/components/site-header'
 
 export const dynamic = 'force-dynamic'
 
-export default async function TipsPage() {
+export default async function TipsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tag?: string; page?: string }>
+}) {
+  const { tag, page: pageStr } = await searchParams
+  const page = Math.max(1, Number(pageStr) || 1)
   const { locale, t } = await getDict()
   const payload = await getPayload({ config: await config })
   const { user } = await payload.auth({ headers: await nextHeaders() })
-  const { docs } = await payload.find({ collection: 'tips', limit: 24, depth: 0, sort: '-updatedAt' })
-  const eng = await getEngagementMap(payload, 'tips', docs.map((d) => d.id), user?.id)
+
+  const where: Where | undefined = tag ? { 'tags.tag': { equals: tag } } : undefined
+  const result = await payload.find({ collection: 'tips', limit: 12, page, depth: 0, sort: '-updatedAt', where })
+  const eng = await getEngagementMap(payload, 'tips', result.docs.map((d) => d.id), user?.id)
 
   return (
     <div className="min-h-dvh">
@@ -23,26 +33,35 @@ export default async function TipsPage() {
         <div className="mb-8">
           <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{t.tipsPage.title}</h1>
           <p className="mt-1 text-[var(--color-text-muted)]">{t.tipsPage.subtitle}</p>
+          {tag ? (
+            <a href="/tips" className="mt-3 inline-flex items-center gap-1 text-sm text-[var(--color-primary)]">
+              #{tag} <span className="text-[var(--color-text-muted)]">✕</span>
+            </a>
+          ) : null}
         </div>
-        {docs.length === 0 ? (
+        {result.docs.length === 0 ? (
           <p className="text-sm text-[var(--color-text-muted)]">{t.dashboard.empty}</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {docs.map((d) => (
-              <ContentCard
-                key={d.id}
-                type="tips"
-                id={d.id}
-                slug={d.slug}
-                title={d.title}
-                summary={d.summary}
-                tags={d.tags}
-                eng={eng.get(String(d.id)) ?? emptyEngState()}
-                canInteract={Boolean(user)}
-                viewLabel={t.home.view}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {result.docs.map((d) => (
+                <ContentCard
+                  key={d.id}
+                  type="tips"
+                  id={d.id}
+                  slug={d.slug}
+                  title={d.title}
+                  summary={d.summary}
+                  tags={d.tags}
+                  tagBase="/tips"
+                  eng={eng.get(String(d.id)) ?? emptyEngState()}
+                  canInteract={Boolean(user)}
+                  viewLabel={t.home.view}
+                />
+              ))}
+            </div>
+            <Pager basePath="/tips" page={page} totalPages={result.totalPages} params={{ tag }} />
+          </>
         )}
       </main>
     </div>

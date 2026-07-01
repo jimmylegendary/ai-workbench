@@ -1,6 +1,6 @@
 'use server'
 
-import { headers as nextHeaders } from 'next/headers'
+import { cookies, headers as nextHeaders } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { getPayload } from 'payload'
 
@@ -35,7 +35,20 @@ export async function favoriteAction(relationTo: EngType, id: number) {
 }
 
 export async function viewAction(relationTo: EngType, id: number) {
+  // Dedup: only count one view per (viewer, item) within the cookie window.
+  const store = await cookies()
+  const key = `${relationTo}:${id}`
+  const raw = store.get('caw04_views')?.value ?? ''
+  const seen = raw ? raw.split(',') : []
+  if (seen.includes(key)) return { ok: true as const, deduped: true as const }
+
   const { payload } = await ctx()
   const views = await incrementView(payload, relationTo, id)
+  store.set('caw04_views', [...seen, key].slice(-200).join(','), {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 12, // 12h
+  })
   return { ok: true as const, views }
 }

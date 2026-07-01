@@ -16,6 +16,7 @@ export function ContentCard({
   eng,
   canInteract,
   viewLabel,
+  tagBase,
 }: {
   type: EngType
   id: number
@@ -28,6 +29,7 @@ export function ContentCard({
   eng: EngState
   canInteract: boolean
   viewLabel: string
+  tagBase?: string
 }) {
   const href = slug ? `/${type}/${slug}` : null
   return (
@@ -52,9 +54,15 @@ export function ContentCard({
         <div className="mb-4 flex flex-wrap gap-1.5">
           {tags.map((t, i) =>
             t?.tag ? (
-              <Badge key={i} variant="accent">
-                {t.tag}
-              </Badge>
+              tagBase ? (
+                <a key={i} href={`${tagBase}?tag=${encodeURIComponent(t.tag)}`}>
+                  <Badge variant="accent">{t.tag}</Badge>
+                </a>
+              ) : (
+                <Badge key={i} variant="accent">
+                  {t.tag}
+                </Badge>
+              )
             ) : null,
           )}
         </div>
