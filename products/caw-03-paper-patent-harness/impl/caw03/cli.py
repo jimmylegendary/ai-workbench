@@ -1,0 +1,218 @@
+"""Thin CLI over the harness op-manifest (ADR-0001).
+
+The CLI cannot bypass a gate — it only calls the same governed core ops the API/MCP
+call. `caw03 run` drives the whole vertical slice: import → gate → assemble → draft
+→ review.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+
+from .config import HarnessConfig
+from .core.harness import Harness
+from .core.models import GateReport, GateStatus
+
+
+def _harness(args) -> Harness:
+    cfg = HarnessConfig.load(getattr(args, "config", None))
+    if getattr(args, "data_dir", None):
+        cfg.data_dir = args.data_dir
+    return Harness(cfg)
+
+
+def _print_gate(report: GateReport) -> None:
+    print(f"gate profile: {report.profile}  bundle: {report.bundle_id}")
+    for r in report.results:
+        mark = "PASS" if r.status is GateStatus.PASSED else "BLOCK"
+        print(f"  [{mark}] {r.claim_id} ({r.type})  admissible_evidence={r.admissible_evidence}")
+        for reason in r.reasons:
+            print(f"         - {reason}")
+    print(f"passed: {report.passed_claim_ids or '(none)'}")
+    print(f"blocked: {report.blocked_claim_ids or '(none)'}")
+
+
+def cmd_import(args) -> int:
+    h = _harness(args)
+    try:
+        res = h.import_bundle(args.ref)
+        print(f"imported bundle {res['bundle_id']}: {res['claims']} claims, "
+              f"{res['results']} results, digest_ok={res['digest_ok']}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_gate(args) -> int:
+    h = _harness(args)
+    try:
+        _print_gate(h.run_gate(args.bundle_id))
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_assemble(args) -> int:
+    h = _harness(args)
+    try:
+        m = h.assemble_inputs(args.bundle_id, args.template, args.guidelines, args.title)
+        print(f"assembled inputs at {m['inputs_dir']}")
+        print(f"  claims: {m['provenance']['claim_ids']}")
+        print(f"  result refs: {m['provenance']['result_ids']}")
+        print(f"  artifact: {m['artifact_id']}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_draft(args) -> int:
+    h = _harness(args)
+    try:
+        d = h.draft(args.bundle_id)
+        print(f"drafted {d['artifact_id']} via engine={d['engine']} renderer={d['renderer']}")
+        print(f"  PDF: {d['paper_pdf']}")
+        print(f"  TeX: {d['paper_tex']}")
+        print(f"  published to: {d['published_to']}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_review(args) -> int:
+    h = _harness(args)
+    try:
+        r = h.run_review(args.bundle_id)
+        print(f"review {r['artifact_id']}: verdict={r['verdict']}")
+        for c in r["checklist"]:
+            print(f"  [{'ok' if c['ok'] else 'x'}] {c['item']}")
+        print(f"  {r['note']}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_status(args) -> int:
+    h = _harness(args)
+    try:
+        arts = h.get_lifecycle()
+        if not arts:
+            print("(no artifacts yet)")
+        for a in arts:
+            print(f"  {a['id']}  type={a['type']}  state={a['state']}  output={a.get('output_ref')}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_adapters(args) -> int:
+    h = _harness(args)
+    try:
+        for a in h.list_adapters():
+            flags = []
+            if a["selected"]:
+                flags.append("selected")
+            if a["enabled"]:
+                flags.append("enabled")
+            if a["maturity"] == "stub":
+                flags.append("STUB")
+            req = f" requires_config={a['requires_config']}" if a["requires_config"] else ""
+            print(f"  {a['port']:14} {a['id']:22} v{a['version']:6} "
+                  f"[{','.join(flags) or '-'}]{req}")
+        pf = h.preflight()
+        print(f"\npreflight (draft ports): {'OK' if pf.ok else 'FAILED'}")
+        for i in pf.failures():
+            print(f"  x {i.port}/{i.adapter_id}: {i.detail}")
+        return 0
+    finally:
+        h.close()
+
+
+def cmd_run(args) -> int:
+    h = _harness(args)
+    try:
+        imp = h.import_bundle(args.ref)
+        bundle_id = imp["bundle_id"]
+        print(f"== import ==\nbundle {bundle_id}: {imp['claims']} claims, "
+              f"digest_ok={imp['digest_ok']}\n")
+
+        print("== gate ==")
+        report = h.run_gate(bundle_id)
+        _print_gate(report)
+        if not report.passed_claim_ids:
+            print("\nNo claim passed the gate — nothing to draft. Slice halts (by design).")
+            return 2
+
+        print("\n== assemble ==")
+        m = h.assemble_inputs(bundle_id, args.template, args.guidelines, args.title)
+        print(f"inputs: {m['inputs_dir']}  claims={m['provenance']['claim_ids']}")
+
+        print("\n== draft ==")
+        d = h.draft(bundle_id)
+        print(f"engine={d['engine']} renderer={d['renderer']}\nPDF: {d['paper_pdf']}")
+
+        print("\n== review ==")
+        r = h.run_review(bundle_id)
+        print(f"verdict: {r['verdict']}")
+        for c in r["checklist"]:
+            print(f"  [{'ok' if c['ok'] else 'x'}] {c['item']}")
+
+        backlog = h.blocked_backlog(bundle_id)
+        print(f"\nblocked-claim backlog: {backlog or '(none)'}")
+        print(f"\nDONE — gated claim → PDF at: {d['paper_pdf']}")
+        return 0
+    finally:
+        h.close()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="caw03", description="CAW-03 Paper & Patent Harness (v1 slice)")
+    p.add_argument("--config", help="path to caw03.config.json")
+    p.add_argument("--data-dir", help="override data dir (default .caw03)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("import-bundle", help="import a CAW-02 bundle")
+    s.add_argument("ref"); s.set_defaults(func=cmd_import)
+
+    s = sub.add_parser("gate", help="run the evidence gate")
+    s.add_argument("bundle_id"); s.set_defaults(func=cmd_gate)
+
+    s = sub.add_parser("assemble", help="assemble engine inputs from gated claims")
+    s.add_argument("bundle_id")
+    s.add_argument("--template", required=True)
+    s.add_argument("--guidelines", required=True)
+    s.add_argument("--title", default="CAW-03 Draft")
+    s.set_defaults(func=cmd_assemble)
+
+    s = sub.add_parser("draft", help="run the writing engine")
+    s.add_argument("bundle_id"); s.set_defaults(func=cmd_draft)
+
+    s = sub.add_parser("review", help="run the review checklist")
+    s.add_argument("bundle_id"); s.set_defaults(func=cmd_review)
+
+    s = sub.add_parser("status", help="artifact lifecycle board")
+    s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("adapters", help="list registered adapters + preflight")
+    s.set_defaults(func=cmd_adapters)
+
+    s = sub.add_parser("run", help="full slice: import→gate→assemble→draft→review")
+    s.add_argument("ref")
+    s.add_argument("--template", required=True)
+    s.add_argument("--guidelines", required=True)
+    s.add_argument("--title", default="CAW-03 Draft")
+    s.set_defaults(func=cmd_run)
+
+    return p
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except Exception as e:  # surface clean errors to the CLI
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

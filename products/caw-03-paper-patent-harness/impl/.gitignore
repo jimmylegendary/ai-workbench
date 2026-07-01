@@ -1,0 +1,9 @@
+# Harness runtime data (SQLite ledger, engine workspaces, produced artifacts)
+.caw03/
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/

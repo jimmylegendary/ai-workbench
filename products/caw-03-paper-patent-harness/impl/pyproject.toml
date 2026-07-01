@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caw03"
+version = "0.0.1"
+description = "CAW-03 — Paper & Patent Writing Harness (v1 vertical slice)"
+readme = "README.md"
+requires-python = ">=3.10"
+# The v1 slice runs on the Python standard library only — no runtime dependencies.
+dependencies = []
+
+[project.scripts]
+caw03 = "caw03.cli:main"
+
+[tool.setuptools]
+packages = [
+  "caw03",
+  "caw03.core",
+  "caw03.ports",
+  "caw03.adapters",
+]
+
+[tool.setuptools.package-data]
+caw03 = ["profiles/*.json", "schema/*.cue"]
