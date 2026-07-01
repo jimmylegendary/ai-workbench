@@ -77,7 +77,11 @@ class Derived:
     tile_unit_bytes: dict[str, int] = field(default_factory=dict)  # per operand
     #: how many times the tile-unit repeats temporally (the fold count)
     fold_count: int = 0
-    #: totals
+    #: the folded structure's MAC count (tile_unit * fold * spatial); >= total_macs
+    #: because the ceil'd trips over-cover imperfectly-factorized dims.
+    folded_macs: float = 0.0
+    #: totals — total_macs is the EXACT work (product of extents); tiling changes
+    #: time/traffic, never the op count.
     total_macs: float = 0.0
     bytes_from_backing: dict[str, float] = field(default_factory=dict)  # per operand
     total_backing_bytes: float = 0.0

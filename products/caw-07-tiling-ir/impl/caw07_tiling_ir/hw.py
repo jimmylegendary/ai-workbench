@@ -41,6 +41,8 @@ class Level:
     peak_macs_per_s: Optional[float] = None
     #: compute leaf only: native matrix-unit shape (m, n, k) if any
     matrix_unit: Optional[tuple[int, int, int]] = None
+    #: compute leaf only: native element size in bytes (e.g. 1=int8, 2=bf16/int16)
+    dtype_bytes: Optional[int] = None
 
     @property
     def is_compute(self) -> bool:
@@ -122,6 +124,7 @@ def linearize(twin) -> LevelStack:
             spatial_axis=node.get("spatial_axis"),
             peak_macs_per_s=node.get("peak_macs_per_s"),
             matrix_unit=tuple(node["matrix_unit"]) if node.get("matrix_unit") else None,
+            dtype_bytes=node.get("dtype_bytes"),
         )
         levels.append(lv)
         for child in node.get("children", []):

@@ -19,13 +19,13 @@ def test_linearize_flattens_and_has_compute_leaf():
     assert hw.at("shared").capacity_bytes == 228 * 1024
 
 
-def test_total_macs_covers_iteration_space():
-    # total work must cover M*N*K (ceil-rounding may over-count slightly, never under).
+def test_total_macs_is_exact():
+    # total op count is EXACTLY the iteration space; tiling changes time, not work.
     hw = linearize(twins.gpu_like())
     p = _author(hw)
-    macs = p.derived.total_macs
-    assert macs >= 4096 ** 3
-    assert macs < 4096 ** 3 * 1.05  # within ~5% (only the K remainder rounds up)
+    assert p.derived.total_macs == 4096 ** 3
+    # the folded structure over-covers (ceil'd trips) so folded >= exact
+    assert p.derived.folded_macs >= p.derived.total_macs
 
 
 def test_fold_identity():
@@ -34,8 +34,8 @@ def test_fold_identity():
     d = p.derived
     S = p.resolved_spatial()
     spatial_total = math.prod(S.values())
-    # total = cost the tile-unit once x fold count x spatial instances
-    assert abs(d.total_macs - d.tile_unit_macs * d.fold_count * spatial_total) < 1e-3
+    # folded = cost the tile-unit once x fold count x spatial instances
+    assert abs(d.folded_macs - d.tile_unit_macs * d.fold_count * spatial_total) < 1e-3
 
 
 def test_hw_parametric_retile():

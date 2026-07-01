@@ -39,12 +39,17 @@ def tile(
     hw,
     tile: Optional[dict[str, Factor]] = None,
     spatial: Optional[dict[str, Factor]] = None,
-    dtype_bytes: int = 2,
+    dtype_bytes: Optional[int] = None,
     macs_per_point: float = 1.0,
     name: str = "op",
 ) -> AbstractTilingPlan:
-    """Author + cost a tiling plan from an einsum pattern."""
+    """Author + cost a tiling plan from an einsum pattern.
+
+    ``dtype_bytes`` defaults to the twin's native compute-leaf element size.
+    """
     hw = linearize(hw)
+    if dtype_bytes is None:
+        dtype_bytes = hw.compute_leaf.dtype_bytes or 2
     ins, out = _parse(pattern)
     axes = []
     for _, a in ins:

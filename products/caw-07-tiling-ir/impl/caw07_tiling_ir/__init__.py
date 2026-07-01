@@ -10,11 +10,13 @@ from .hw import COMPUTE, Level, LevelStack, linearize
 from .plan import AbstractTilingPlan, Derived, Factor, Op, Operand, Remainder, resolve
 from .cost import derive
 from .einsum import attention, matmul, render, tile
+from .validate import check_all, ridge_mac_per_byte, roofline_check
 from . import twins
 
 __all__ = [
     "COMPUTE", "Level", "LevelStack", "linearize",
     "AbstractTilingPlan", "Derived", "Factor", "Op", "Operand", "Remainder", "resolve",
     "derive", "tile", "matmul", "attention", "render", "twins",
+    "check_all", "roofline_check", "ridge_mac_per_byte",
 ]
 __version__ = "0.1.0"

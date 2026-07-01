@@ -74,7 +74,8 @@ def derive(plan: AbstractTilingPlan) -> AbstractTilingPlan:
 
     # --- compute: cost the tile-unit once, fold it ---
     tile_unit_macs = _prod(T[d] for d in dims) * op.macs_per_point
-    total_macs = tile_unit_macs * fold_count * spatial_total
+    folded_macs = tile_unit_macs * fold_count * spatial_total  # >= exact (ceil over-cover)
+    total_macs = _prod(E[d] for d in dims) * op.macs_per_point  # exact op count
 
     leaf = hw.compute_leaf
     leaf_rate = leaf.peak_macs_per_s or 1.0  # MACs/s for ONE compute instance
@@ -104,6 +105,7 @@ def derive(plan: AbstractTilingPlan) -> AbstractTilingPlan:
         tile_unit_macs=tile_unit_macs,
         tile_unit_bytes=tile_bytes,
         fold_count=fold_count,
+        folded_macs=folded_macs,
         total_macs=total_macs,
         bytes_from_backing=bytes_from_backing,
         total_backing_bytes=total_backing_bytes,
