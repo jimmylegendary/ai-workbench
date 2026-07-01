@@ -12,6 +12,7 @@ from pathlib import Path
 from caw03.config import HarnessConfig
 from caw03.core.assemble import UngatedClaimError
 from caw03.core.harness import Harness
+from caw03.core.models import Evidence, EvidenceKind
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "bundle_demo"
 BUNDLE = str(EXAMPLES / "bundle.json")
@@ -55,6 +56,14 @@ class SliceTest(unittest.TestCase):
         self.assertEqual(pdf.read_bytes()[:5], b"%PDF-", "output is not a valid PDF")
         review = self.h.run_review("demo-2026-07")
         self.assertEqual(review["verdict"], "ready_for_human_review")
+
+    def test_source_artifact_is_admissible_evidence(self):
+        # the "code + design docs → paper" case: a repo file @ commit is a concrete,
+        # resolvable artifact and counts as evidence; generated prose still does not.
+        self.assertTrue(
+            Evidence("e", EvidenceKind.SOURCE_ARTIFACT, "repo://docs/CORE_MODEL.md@abc123").is_admissible())
+        self.assertFalse(
+            Evidence("e", EvidenceKind.GENERATED_TEXT, "some prose").is_admissible())
 
     def test_assemble_only_uses_gated_claims(self):
         self.h.import_bundle(BUNDLE)

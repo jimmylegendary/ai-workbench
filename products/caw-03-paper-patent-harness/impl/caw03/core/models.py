@@ -28,11 +28,19 @@ class EvidenceKind(str, Enum):
 
     CAW02_EVIDENCE = "caw02_evidence"
     CAW01_RESULT = "caw01_result"
+    # A concrete, resolvable source artifact — a repo file / design doc / test result
+    # at a commit. Admissible for the "code + design docs → paper" case (a code file
+    # IS a concrete artifact, unlike generated prose).
+    SOURCE_ARTIFACT = "source_artifact"
     GENERATED_TEXT = "generated_text"
     PROSE_NOTE = "prose_note"
 
     def is_admissible(self) -> bool:
-        return self in (EvidenceKind.CAW02_EVIDENCE, EvidenceKind.CAW01_RESULT)
+        return self in (
+            EvidenceKind.CAW02_EVIDENCE,
+            EvidenceKind.CAW01_RESULT,
+            EvidenceKind.SOURCE_ARTIFACT,
+        )
 
 
 class GateStatus(str, Enum):

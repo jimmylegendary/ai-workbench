@@ -8,7 +8,7 @@
 // Snapshot shape produced by core/gate.py:cue_vet_snapshot:
 //   { "claims": [ { "claim_id": "..", "type": "P1", "evidence": [ {id,kind,ref} ] } ] }
 
-#Kind: "caw02_evidence" | "caw01_result" | "generated_text" | "prose_note"
+#Kind: "caw02_evidence" | "caw01_result" | "source_artifact" | "generated_text" | "prose_note"
 #Type: "P1" | "P2" | "P3"
 
 #Evidence: {
@@ -17,7 +17,7 @@
 	ref:  string
 	// Real evidence must carry a non-empty, resolvable ref. Generated/prose text is
 	// allowed to appear in the snapshot but is never counted as evidence by the gate.
-	if kind == "caw02_evidence" || kind == "caw01_result" {
+	if kind == "caw02_evidence" || kind == "caw01_result" || kind == "source_artifact" {
 		ref: !=""
 	}
 }
