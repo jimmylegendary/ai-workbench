@@ -3,6 +3,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@/lib/supabase/server";
+import type { SideRef, SideResult } from "@/features/workload/model/sideFiles";
 
 /**
  * Server actions for the WorkloadPanel's non-PC trace sources.
@@ -140,6 +141,124 @@ export async function readStorageTrace(objectPath: string): Promise<TraceReadRes
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Failed to download trace.",
+    };
+  }
+}
+
+// ── Side-file entries (lazy, per-step) ───────────────────────────────────────
+//
+// A side file (tokens/hashes/raw/tools.jsonl) is a sibling of the main trace.
+// Given a ref { file, key }, we read the file, parse it as JSON or JSONL, and
+// return the single row whose `request_id` (llm refs) or `tool_id` (tool refs)
+// equals `ref.key`. Same never-throw + traversal-hardening contract as above.
+
+/** A bare in-root file name (no separators / traversal / absolute path). */
+function isSafeName(name: string): boolean {
+  return (
+    !!name &&
+    !path.isAbsolute(name) &&
+    !name.includes("..") &&
+    !/[\\/]/.test(name) &&
+    TRACE_EXT.test(name)
+  );
+}
+
+/** Parse side-file text as a JSON array/object OR JSONL rows (skips bad lines). */
+function parseRows(text: string): Record<string, unknown>[] {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return [];
+  // Try a single JSON document first (array or object).
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter(
+        (r): r is Record<string, unknown> => typeof r === "object" && r !== null,
+      );
+    }
+    if (typeof parsed === "object" && parsed !== null) {
+      return [parsed as Record<string, unknown>];
+    }
+  } catch {
+    // fall through to JSONL
+  }
+  const rows: Record<string, unknown>[] = [];
+  for (const line of trimmed.split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      const r = JSON.parse(s) as unknown;
+      if (typeof r === "object" && r !== null) rows.push(r as Record<string, unknown>);
+    } catch {
+      // skip malformed line
+    }
+  }
+  return rows;
+}
+
+/** Find the row whose request_id / tool_id equals the ref key. */
+function findByKey(
+  rows: Record<string, unknown>[],
+  key: string,
+): Record<string, unknown> | undefined {
+  return rows.find((r) => r.request_id === key || r.tool_id === key);
+}
+
+/** Read one side-file row from disk (sibling of the server trace dir). */
+export async function readServerSideEntry(ref: SideRef): Promise<SideResult> {
+  const dir = process.env.WORKLOAD_TRACE_DIR;
+  if (!dir) return { ok: false, error: "WORKLOAD_TRACE_DIR is not set." };
+  if (!ref || !isSafeName(ref.file)) {
+    return { ok: false, error: "Invalid side-file name." };
+  }
+
+  const root = path.resolve(dir);
+  const resolved = path.resolve(root, ref.file);
+  if (resolved !== path.join(root, path.basename(ref.file))) {
+    return { ok: false, error: "Refusing to read outside the trace directory." };
+  }
+
+  try {
+    const text = await readFile(resolved, "utf8");
+    const row = findByKey(parseRows(text), ref.key);
+    if (!row) {
+      return { ok: false, error: `No entry for "${ref.key}" in ${ref.file}.` };
+    }
+    return { ok: true, data: row };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Failed to read side file.",
+    };
+  }
+}
+
+/** Read one side-file row from the Supabase Storage bucket. */
+export async function readStorageSideEntry(ref: SideRef): Promise<SideResult> {
+  if (!supabaseConfigured()) {
+    return { ok: false, error: "Supabase is not configured (local mode)." };
+  }
+  if (!ref || !isSafeName(ref.file)) {
+    return { ok: false, error: "Invalid side-file path." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.storage
+      .from(traceBucket())
+      .download(ref.file);
+    if (error || !data) {
+      return { ok: false, error: error?.message ?? "Side file not found." };
+    }
+    const text = await data.text();
+    const row = findByKey(parseRows(text), ref.key);
+    if (!row) {
+      return { ok: false, error: `No entry for "${ref.key}" in ${ref.file}.` };
+    }
+    return { ok: true, data: row };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Failed to download side file.",
     };
   }
 }

@@ -11,8 +11,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useWorkloadStore } from "@/features/workload/store";
+import { useWorkloadStore, type SourceKind } from "@/features/workload/store";
 import { StepInspector } from "@/features/workload/view/StepInspector";
+import { resolveSideRef, type SideRef } from "@/features/workload/model/sideFiles";
 import {
   listServerTraces,
   readServerTrace,
@@ -45,7 +46,7 @@ function exampleFilename(ex: OtelExample): string {
  * parse failures surface in `error`. Reset clears everything.
  * ----------------------------------------------------------------------- */
 
-type Source = "pc" | "server" | "supabase" | "example";
+type Source = SourceKind;
 
 const SOURCES: { v: Source; label: string }[] = [
   { v: "pc", label: "PC" },
@@ -104,12 +105,17 @@ export function WorkloadPanel() {
       return next;
     });
 
+  const activeSession =
+    sessions.find((x) => x.id === activeSessionId) ?? null;
   const activeTurn =
-    sessions
-      .find((x) => x.id === activeSessionId)
-      ?.turns.find((t) => t.id === activeTurnId) ?? null;
+    activeSession?.turns.find((t) => t.id === activeTurnId) ?? null;
   const selectedStep =
     activeTurn?.steps.find((s) => s.id === selectedStepId) ?? null;
+
+  // Side-file resolver bound to how the ACTIVE session was loaded (default pc).
+  const activeSourceKind =
+    (activeSession?.meta?.sourceKind as SourceKind | undefined) ?? "pc";
+  const onResolveRef = (ref: SideRef) => resolveSideRef(ref, activeSourceKind);
 
   const loadedSources = new Set(
     sessions.map((s) => s.source).filter((v): v is string => v != null),
@@ -166,13 +172,16 @@ export function WorkloadPanel() {
 
         <div className="mt-2">
           {source === "pc" ? (
-            <PcLoader onLoad={loadFromText} />
+            <PcLoader onLoad={(t, f) => loadFromText(t, f, "pc")} />
           ) : source === "server" ? (
-            <ServerLoader onLoad={loadFromText} />
+            <ServerLoader onLoad={(t, f) => loadFromText(t, f, "server")} />
           ) : source === "supabase" ? (
-            <SupabaseLoader onLoad={loadFromText} />
+            <SupabaseLoader onLoad={(t, f) => loadFromText(t, f, "supabase")} />
           ) : (
-            <ExampleLoader loadedSources={loadedSources} onLoad={loadFromText} />
+            <ExampleLoader
+              loadedSources={loadedSources}
+              onLoad={(t, f) => loadFromText(t, f, "example")}
+            />
           )}
         </div>
 
@@ -215,7 +224,7 @@ export function WorkloadPanel() {
 
       {/* 3. STEP INSPECTOR ----------------------------------------------- */}
       <div className="max-h-[40%] min-h-0 shrink-0 overflow-auto border-t border-border">
-        <StepInspector step={selectedStep} />
+        <StepInspector step={selectedStep} onResolveRef={onResolveRef} />
       </div>
     </div>
   );

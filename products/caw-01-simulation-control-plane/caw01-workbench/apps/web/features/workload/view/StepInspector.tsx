@@ -1,9 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { AgentStep, StepStatus } from "@caw/core";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  asSideRef,
+  type SideRef,
+  type SideResult,
+} from "@/features/workload/model/sideFiles";
 
 const statusTone: Record<StepStatus, "success" | "danger" | "running" | "neutral"> = {
   ok: "success",
@@ -53,12 +59,159 @@ function JsonBlock({ label, value }: { label: string; value: unknown }) {
   );
 }
 
+/** The four side-file refs a step may carry, in display order. */
+const SIDE_REFS: { metaKey: string; label: string }[] = [
+  { metaKey: "raw_ref", label: "raw messages" },
+  { metaKey: "token_ids_ref", label: "token ids" },
+  { metaKey: "hash_ref", label: "hash blocks" },
+  { metaKey: "tool_ref", label: "tool io" },
+];
+
+/** Compact per-ref count summary for the row header. */
+function refCounts(metaKey: string, ref: SideRef): string {
+  switch (metaKey) {
+    case "raw_ref":
+      return `${ref.message_count ?? "?"} msgs · ${ref.chars ?? "?"} chars`;
+    case "token_ids_ref":
+      return `${ref.prompt_count ?? "?"} prompt · ${ref.out_count ?? "?"} out`;
+    case "hash_ref":
+      return `${ref.n_blocks ?? "?"} blocks`;
+    case "tool_ref":
+      return `${ref.input_chars ?? "?"} in · ${ref.output_chars ?? "?"} out chars`;
+    default:
+      return "";
+  }
+}
+
+type LoadState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "done"; result: SideResult };
+
+/** Render a loaded side row readably — messages / tool io / arrays / fallback. */
+function SideData({ data, note }: { data: Record<string, unknown>; note?: string }) {
+  const messages = Array.isArray(data.messages) ? data.messages : null;
+  const hasToolIo = "input" in data || "output" in data;
+  return (
+    <div className="space-y-2">
+      {note ? (
+        <p className="font-readout text-[10px] italic text-text-muted">{note}</p>
+      ) : null}
+
+      {messages ? (
+        <div className="space-y-1.5">
+          {messages.map((m, i) => {
+            const rec = (typeof m === "object" && m !== null ? m : {}) as Record<
+              string,
+              unknown
+            >;
+            const role = typeof rec.role === "string" ? rec.role : "message";
+            const content =
+              typeof rec.content === "string" ? rec.content : pretty(rec.content);
+            return (
+              <div key={i} className="space-y-0.5">
+                <span className="text-[10px] uppercase tracking-wide text-text-muted">
+                  {role}
+                </span>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] border border-border bg-surface-muted p-2 font-readout text-[11px] leading-relaxed text-text">
+                  {content}
+                </pre>
+              </div>
+            );
+          })}
+          {typeof data.output_text === "string" ? (
+            <JsonBlock label="output_text" value={data.output_text} />
+          ) : null}
+        </div>
+      ) : hasToolIo ? (
+        <div className="space-y-1.5">
+          <JsonBlock label="input" value={data.input} />
+          <JsonBlock label="output" value={data.output} />
+        </div>
+      ) : (
+        <JsonBlock label="data" value={data} />
+      )}
+    </div>
+  );
+}
+
+/** One collapsible ref row with a Load button + loading/error/data states. */
+function SideRefRow({
+  metaKey,
+  label,
+  sideRef,
+  onResolveRef,
+}: {
+  metaKey: string;
+  label: string;
+  sideRef: SideRef;
+  onResolveRef?: (ref: SideRef) => Promise<SideResult>;
+}) {
+  const [state, setState] = useState<LoadState>({ phase: "idle" });
+
+  async function load() {
+    if (!onResolveRef) return;
+    setState({ phase: "loading" });
+    const result = await onResolveRef(sideRef);
+    setState({ phase: "done", result });
+  }
+
+  const loading = state.phase === "loading";
+
+  return (
+    <div className="space-y-1.5 rounded-[var(--radius-sm)] border border-border p-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <span className="text-xs font-medium text-text">{label}</span>
+          <span className="ml-1.5 font-readout text-[10px] text-text-muted">
+            {refCounts(metaKey, sideRef)}
+          </span>
+          <span className="block truncate font-readout text-[10px] text-text-muted">
+            {sideRef.file} · {sideRef.key}
+          </span>
+        </div>
+        <Button
+          variant="secondary"
+          className="shrink-0 px-2 py-1 text-[11px]"
+          disabled={loading || !onResolveRef}
+          onClick={() => void load()}
+        >
+          {loading ? "Loading…" : state.phase === "done" ? "Reload" : "Load"}
+        </Button>
+      </div>
+
+      {!onResolveRef ? (
+        <p className="font-readout text-[10px] text-text-muted">
+          No resolver available for this session.
+        </p>
+      ) : null}
+
+      {state.phase === "done" ? (
+        state.result.ok ? (
+          <SideData data={state.result.data} note={state.result.note} />
+        ) : (
+          <p className="font-readout text-[11px] leading-relaxed text-danger">
+            {state.result.error}
+          </p>
+        )
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Details panel for the selected step — kind + name + status badges, exec
- * location, timing, tokens/cost, and pretty-printed args/result. Empty state
+ * location, timing, tokens/cost, and pretty-printed args/result. Present
+ * side-file refs get a lazy Load button (never fetched eagerly). Empty state
  * when nothing is selected.
  */
-export function StepInspector({ step }: { step: AgentStep | null }) {
+export function StepInspector({
+  step,
+  onResolveRef,
+}: {
+  step: AgentStep | null;
+  onResolveRef?: (ref: SideRef) => Promise<SideResult>;
+}) {
   if (!step) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-sm text-text-muted">
@@ -69,6 +222,15 @@ export function StepInspector({ step }: { step: AgentStep | null }) {
 
   const hasTokens =
     step.tokensIn != null || step.tokensOut != null || step.costUsd != null;
+
+  const meta = step.meta ?? {};
+  const sideRefs = SIDE_REFS.map(({ metaKey, label }) => ({
+    metaKey,
+    label,
+    ref: asSideRef(meta[metaKey]),
+  })).filter(
+    (x): x is { metaKey: string; label: string; ref: SideRef } => x.ref !== null,
+  );
 
   return (
     <div className="flex flex-col gap-4 overflow-auto p-4">
@@ -107,6 +269,25 @@ export function StepInspector({ step }: { step: AgentStep | null }) {
           {step.costUsd != null && (
             <Field label="cost">${step.costUsd.toFixed(4)}</Field>
           )}
+        </div>
+      )}
+
+      {sideRefs.length > 0 && (
+        <div className="space-y-2 border-t border-border pt-3">
+          <span className="text-[11px] uppercase tracking-wide text-text-muted">
+            side files
+          </span>
+          {sideRefs.map(({ metaKey, label, ref }) => (
+            <SideRefRow
+              // Identity-bearing key → remount (reset load state) when the
+              // selected step changes, so a row never shows another step's payload.
+              key={`${metaKey}:${ref.file}:${ref.key}`}
+              metaKey={metaKey}
+              label={label}
+              sideRef={ref}
+              onResolveRef={onResolveRef}
+            />
+          ))}
         </div>
       )}
 

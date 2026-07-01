@@ -5,6 +5,13 @@ import type { AgentSession, AgentTurn } from "@caw/core";
 import { loadSession } from "@/features/workload/model/loadSession";
 
 /**
+ * Where a loaded session came from. This drives lazy side-file resolution:
+ * PC uploads are a single file (no side files); Server/Supabase can read the
+ * sibling side files; Example synthesizes shape-correct rows locally.
+ */
+export type SourceKind = "pc" | "server" | "supabase" | "example";
+
+/**
  * Shared Workload (C1) store. Holds ANY number of loaded trace SESSIONS (a load
  * = one session file; you can load several) plus the active session/turn/step.
  * The C1 canvas, the Serving-input builder, and the WorkloadPanel tree all read
@@ -22,8 +29,10 @@ export interface WorkloadState {
   error: string | null;
 
   /** Parse trace text (adapter registry) and ADD it as a session (dedup by id →
-   *  replace); make it active with its first turn. Never throws (→ `error`). */
-  loadFromText: (text: string, filename?: string) => void;
+   *  replace); make it active with its first turn. `sourceKind` (default "pc")
+   *  is stamped on `session.meta.sourceKind` so the inspector knows how to
+   *  resolve this session's side-file refs. Never throws (→ `error`). */
+  loadFromText: (text: string, filename?: string, sourceKind?: SourceKind) => void;
   /** Add an already-parsed session (example picker); dedup by id. */
   addSession: (session: AgentSession) => void;
   /** Select a turn within a session (also clears the selected step). */
@@ -48,10 +57,14 @@ export const useWorkloadStore = create<WorkloadState>((set, get) => ({
   selectedStepId: null,
   error: null,
 
-  loadFromText: (text, filename) => {
+  loadFromText: (text, filename, sourceKind = "pc") => {
     try {
       const session = loadSession(text, filename);
-      get().addSession(session);
+      const stamped: AgentSession = {
+        ...session,
+        meta: { ...session.meta, sourceKind },
+      };
+      get().addSession(stamped);
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
     }

@@ -30,6 +30,8 @@
  *     examples to exercise the full shape of the format.
  */
 
+import type { SideRef, SideResult } from "@/features/workload/model/sideFiles";
+
 export interface OtelExample {
   id: string;
   label: string;
@@ -1616,4 +1618,153 @@ export const otelExamples: OtelExample[] = [
 /** Serialize an example's rows to newline-delimited JSON (`main.jsonl`). */
 export function exampleJsonl(ex: OtelExample): string {
   return ex.main.map((row) => JSON.stringify(row)).join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Synthesized side-file entries (Example source only).
+//
+// The example `main.jsonl` above ships ONLY the `*_ref` pointers — the heavy
+// side files (tokens/hashes/raw/tools.jsonl) are not bundled. When the inspector
+// asks to Load a ref for an Example-loaded session, we synthesize a
+// shape-correct row from the ref's counts. Everything is DETERMINISTIC (seeded
+// from ref.key, no randomness) and clearly labelled as example-synthesized so it
+// is never mistaken for a real payload.
+// ---------------------------------------------------------------------------
+
+/** Rough token-id / char cap so synthesized arrays stay small + readable. */
+const SYNTH_CAP = 64;
+const SYNTH_TEXT_CAP = 2000;
+
+const nonNegInt = (v: number | undefined, fallback = 0): number =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+
+/** FNV-1a → a stable 32-bit seed from the ref key. */
+function seedFrom(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Deterministic LCG step. */
+function nextRand(state: number): number {
+  return (Math.imul(state, 1103515245) + 12345) >>> 0;
+}
+
+const SYNTH_WORDS = [
+  "the", "cache", "prompt", "token", "block", "hash", "tier", "prefix",
+  "reuse", "agent", "tool", "model", "query", "result", "context", "layer",
+  "vllm", "kv", "fetch", "store", "prefill", "decode", "chunk", "residency",
+];
+
+/** Deterministic filler text of about `chars` characters, prefixed with a label. */
+function synthText(seed: number, chars: number, label: string): string {
+  const target = Math.min(SYNTH_TEXT_CAP, Math.max(1, chars));
+  let out = `[example-synth ${label}] `;
+  let s = seed >>> 0;
+  while (out.length < target) {
+    s = nextRand(s);
+    out += SYNTH_WORDS[s % SYNTH_WORDS.length] + " ";
+  }
+  return out.slice(0, Math.max(1, target)).trimEnd();
+}
+
+/** Deterministic array of `n` small non-negative integer ids. */
+function synthIds(seed: number, n: number): number[] {
+  const out: number[] = [];
+  let s = seed >>> 0;
+  for (let i = 0; i < n; i++) {
+    s = nextRand(s);
+    out.push(s % 50000);
+  }
+  return out;
+}
+
+/** Deterministic short hex id. */
+function synthHex(seed: number): string {
+  return (seed >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+}
+
+/**
+ * Synthesize a shape-correct side-file row for an Example-loaded ref. Dispatches
+ * by the ref's file name (raw / tokens / hashes / tools). Never throws.
+ */
+export function exampleSideEntry(ref: SideRef): SideResult {
+  const file = ref.file ?? "";
+  const seed = seedFrom(ref.key);
+  const note = `example-synthesized (deterministic from key "${ref.key}") — not a real payload`;
+
+  if (file.includes("raw")) {
+    const count = Math.max(1, nonNegInt(ref.message_count, 2));
+    const totalChars = nonNegInt(ref.chars, count * 200);
+    const perMsg = Math.max(24, Math.floor(totalChars / count));
+    const messages = Array.from({ length: count }, (_, i) => {
+      const role = i % 2 === 0 ? "user" : "assistant";
+      return { role, content: synthText(seed + i * 131, perMsg, `${role} msg ${i + 1}`) };
+    });
+    const output_text = synthText(
+      seed + count * 131,
+      Math.min(240, Math.max(40, Math.floor(perMsg / 2))),
+      "final answer",
+    );
+    return {
+      ok: true,
+      note,
+      data: { request_id: ref.key, messages, output_text },
+    };
+  }
+
+  if (file.includes("token")) {
+    const pc = nonNegInt(ref.prompt_count);
+    const oc = nonNegInt(ref.out_count);
+    const data: Record<string, unknown> = {
+      request_id: ref.key,
+      prompt_token_ids: synthIds(seed, Math.min(pc, SYNTH_CAP)),
+      output_token_ids: synthIds(seed + 7, Math.min(oc, SYNTH_CAP)),
+    };
+    if (pc > SYNTH_CAP) {
+      data.prompt_note = `showing ${SYNTH_CAP} of ${pc} prompt token ids (+${pc - SYNTH_CAP} more)`;
+    }
+    if (oc > SYNTH_CAP) {
+      data.output_note = `showing ${SYNTH_CAP} of ${oc} output token ids (+${oc - SYNTH_CAP} more)`;
+    }
+    return { ok: true, note, data };
+  }
+
+  if (file.includes("hash")) {
+    const n = nonNegInt(ref.n_blocks);
+    const shown = Math.min(n, SYNTH_CAP);
+    const data: Record<string, unknown> = {
+      request_id: ref.key,
+      n_prompt_hash_blocks: n,
+      prompt_hash_ids: Array.from({ length: shown }, (_, i) =>
+        synthHex(nextRand(seed + i * 2_654_435)),
+      ),
+    };
+    if (n > SYNTH_CAP) {
+      data.note_more = `showing ${SYNTH_CAP} of ${n} hash ids (+${n - SYNTH_CAP} more)`;
+    }
+    return { ok: true, note, data };
+  }
+
+  if (file.includes("tool")) {
+    const ic = nonNegInt(ref.input_chars);
+    const oc = nonNegInt(ref.output_chars);
+    const data: Record<string, unknown> = {
+      tool_id: ref.key,
+      input: synthText(seed, ic || 48, "tool input"),
+      output: synthText(seed + 3, oc || 96, "tool output"),
+    };
+    if (oc > SYNTH_TEXT_CAP) {
+      data.output_note = `output truncated to ${SYNTH_TEXT_CAP} of ${oc} chars`;
+    }
+    return { ok: true, note, data };
+  }
+
+  return {
+    ok: false,
+    error: `No example synthesizer for side file "${file}".`,
+  };
 }
