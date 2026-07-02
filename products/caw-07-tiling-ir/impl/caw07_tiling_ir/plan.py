@@ -40,6 +40,9 @@ class Operand:
 
     name: str
     dims: tuple[str, ...]
+    #: optional Level id/role this operand is staged in (per-operand placement,
+    #: memref-memory-space style). None = default (innermost on-chip tier).
+    placement: Optional[str] = None
 
 
 @dataclass
@@ -57,6 +60,34 @@ class Op:
     operands: list[Operand]
     dtype_bytes: int = 2
     macs_per_point: float = 1.0
+    #: partial-sum / accumulator element size (bytes). Defaults to dtype_bytes;
+    #: set larger (e.g. int32=4, or a 16-bit partial) to model accumulation at a
+    #: wider precision than the final output (linalg/ZigZag operand precision).
+    accumulator_bytes: Optional[int] = None
+    #: iterator kind per loop dim ('parallel'|'reduction'); derived if None
+    #: (linalg iterator_types): a dim not indexed by the output operand reduces.
+    iterator_types: Optional[dict[str, str]] = None
+
+    @property
+    def output_operand(self) -> Operand:
+        """Convention: the last operand is the written output (an accumulator)."""
+        return self.operands[-1]
+
+    @property
+    def reduction_dims(self) -> list[str]:
+        out = set(self.output_operand.dims)
+        return [d for d in self.dims if d not in out]
+
+    def iters(self) -> dict[str, str]:
+        """parallel|reduction per dim (explicit override or derived)."""
+        if self.iterator_types:
+            return self.iterator_types
+        red = set(self.reduction_dims)
+        return {d: ("reduction" if d in red else "parallel") for d in self.dims}
+
+    @property
+    def acc_bytes(self) -> int:
+        return self.accumulator_bytes or self.dtype_bytes
 
 
 @dataclass

@@ -40,12 +40,14 @@ def tile(
     tile: Optional[dict[str, Factor]] = None,
     spatial: Optional[dict[str, Factor]] = None,
     dtype_bytes: Optional[int] = None,
+    accumulator_bytes: Optional[int] = None,
     macs_per_point: float = 1.0,
     name: str = "op",
 ) -> AbstractTilingPlan:
     """Author + cost a tiling plan from an einsum pattern.
 
     ``dtype_bytes`` defaults to the twin's native compute-leaf element size.
+    ``accumulator_bytes`` (partial-sum precision) defaults to ``dtype_bytes``.
     """
     hw = linearize(hw)
     if dtype_bytes is None:
@@ -63,8 +65,8 @@ def tile(
 
     operands = [Operand(nm, a) for nm, a in ins]
     operands.append(Operand("Y", out))
-    op = Op(name=name, dims=dims, operands=operands,
-            dtype_bytes=dtype_bytes, macs_per_point=macs_per_point)
+    op = Op(name=name, dims=dims, operands=operands, dtype_bytes=dtype_bytes,
+            accumulator_bytes=accumulator_bytes, macs_per_point=macs_per_point)
 
     plan = AbstractTilingPlan(op=op, hw=hw, tile=dict(tile or {}),
                               spatial=dict(spatial or {}))

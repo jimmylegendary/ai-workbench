@@ -9,8 +9,9 @@ our repetition-folding cost model reproduces ZigZag on the SAME mapping:
   * ideal compute cycles within 25%,
   * roofline bound classification matches.
 
-The documented divergence case (output partial-sum spill on a tiny on-chip
-buffer) is exercised for coverage but NOT asserted on DRAM bytes.
+The output partial-sum-spill case (tiny on-chip buffer, reduction dim tiled across
+DRAM) is now MODELED by cost.py (per-operand placement + accumulator-precision RMW),
+so it is asserted like the primaries — not merely documented.
 
 Run:  (. .venv-zigzag/bin/activate && pytest tests/test_zigzag_crosscheck.py -v)
 """
@@ -32,9 +33,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("case", zc.PRIMARY_CASES, ids=lambda c: c.label)
+@pytest.mark.parametrize("case", zc.PRIMARY_CASES + zc.SPILL_CASES, ids=lambda c: c.label)
 def test_crosscheck_primary(case):
-    """Every asserted metric must pass its tolerance for the primary cases."""
+    """Every asserted metric must pass its tolerance (primaries + spill case)."""
     result = zc.crosscheck(case)
     failures = [
         f"{r.metric}: ours={r.ours} zigzag={r.zigzag} tol={r.tol}"
@@ -62,14 +63,16 @@ def test_bound_classification_agrees():
         assert bound_row.passed, f"{case.label}: {bound_row.note}"
 
 
-def test_divergence_case_is_documented_not_silent():
-    """The tiny-buffer case must actually diverge on O (partial-sum spill),
-    confirming we are reporting a real limitation, not hiding it."""
-    case = zc.DIVERGENCE_CASES[0]
+def test_partial_sum_spill_matches():
+    """The tiny-buffer case spills the output accumulator across the reduction
+    loop; cost.py now models the read-modify-write at accumulator precision, so
+    O (and total) must MATCH ZigZag exactly — the former divergence is closed."""
+    case = zc.SPILL_CASES[0]
     zz = zc.run_zigzag(case.M, case.K, case.N,
                        str(zc.CONFIG_DIR / case.hw_yaml_kind), zc.bundled_mapping())
     ours = zc.run_ours(case.M, case.K, case.N, case.onchip_bytes, zz["tiles"])
-    # ZigZag re-streams the partially-accumulated output; we under-count it.
-    assert ours["dram_bytes"]["O"] < zz["dram_bytes"]["O"]
-    # ...but MACs are still exact even where traffic diverges.
     assert ours["macs"] == zz["macs"]
+    # the spilled output is now counted (was under-counted before per-operand
+    # placement + accumulator-precision RMW landed):
+    assert ours["dram_bytes"]["O"] == zz["dram_bytes"]["O"]
+    assert ours["dram_total"] == zz["dram_total"]

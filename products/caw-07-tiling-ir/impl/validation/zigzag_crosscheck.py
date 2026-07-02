@@ -217,7 +217,12 @@ def run_zigzag(M: int, K: int, N: int, hw_yaml: str, map_yaml: str) -> dict:
 # ----------------------------------------------------------------------------
 def run_ours(M: int, K: int, N: int, onchip_bytes: int, tiles: dict[str, int]) -> dict:
     hw = linearize(gemm_twin(onchip_bytes))
-    plan = matmul(M, N, K, hw, tile=dict(tiles), dtype_bytes=DTYPE_BYTES)
+    # mirror ZigZag's operand_precision: final output O_final:8 (=DTYPE_BYTES), but
+    # the partial-sum accumulator O:16 (=2 B) — used when the output spills across
+    # the reduction loop (read-modify-write). Resident output is written once at
+    # the final precision, so this is inert for the non-spill primary cases.
+    plan = matmul(M, N, K, hw, tile=dict(tiles), dtype_bytes=DTYPE_BYTES,
+                  accumulator_bytes=2)
     d = plan.derived
     # operand name map: A=(m,k)=I, B=(k,n)=W, Y=(m,n)=O
     dram = {
@@ -248,7 +253,7 @@ class Case:
     N: int
     onchip_bytes: int
     hw_yaml_kind: str = "bundled"          # "bundled" | filename in configs/
-    assert_dram: bool = True               # False for the documented divergence case
+    assert_dram: bool = True               # gate DRAM bytes on this case
     note: str = ""
 
 
@@ -264,12 +269,16 @@ PRIMARY_CASES = [
          note="low arithmetic intensity (AI<ridge) -> memory-bound; both agree"),
 ]
 
-DIVERGENCE_CASES = [
-    Case("divergence  512x512x512 (8KiB L1)", 512, 512, 512, 8192,
-         hw_yaml_kind="gemm_small_l1.yaml", assert_dram=False,
-         note="tiny L1 tiles the reduction dim across DRAM -> ZigZag models "
-              "output partial-sum spill; our Phase-1 traffic does not (we "
-              "under-count O). Reported to document the divergence, not asserted."),
+# Output partial-sum SPILL: a tiny L1 forces the reduction dim to be tiled across
+# DRAM, so the output accumulator can't stay resident and is read-modify-written
+# each reduction block (at accumulator precision). Now MODELED by cost.py (per-
+# operand placement + reduction-aware output traffic) -> matches ZigZag exactly,
+# so it is asserted like the primaries.
+SPILL_CASES = [
+    Case("partial-sum spill 512x512x512 (8KiB L1)", 512, 512, 512, 8192,
+         hw_yaml_kind="gemm_small_l1.yaml", assert_dram=True,
+         note="tiny L1 spills the output accumulator across the reduction loop; "
+              "cost.py now models the RMW at accumulator precision -> matches ZigZag."),
 ]
 
 
@@ -376,11 +385,11 @@ def print_report(result: dict) -> None:
     print("-" * 84)
 
 
-def run_all(include_divergence: bool = True) -> list[dict]:
+def run_all(include_spill: bool = True) -> list[dict]:
     """Run every case; return the list of results (each has 'rows')."""
     if not HAVE_ZIGZAG:
         raise RuntimeError("zigzag-dse not installed")
-    cases = list(PRIMARY_CASES) + (list(DIVERGENCE_CASES) if include_divergence else [])
+    cases = list(PRIMARY_CASES) + (list(SPILL_CASES) if include_spill else [])
     return [crosscheck(c) for c in cases]
 
 
@@ -394,19 +403,18 @@ def main() -> int:
         print("See runbooks/RB-02-zigzag-crosscheck.md for the recorded numbers.")
         return 0
 
-    results = run_all(include_divergence=True)
+    results = run_all(include_spill=True)
     all_pass = True
     for res in results:
         print_report(res)
-        # divergence case is reported, not gated
         if res["case"].assert_dram:
             all_pass = all_pass and all(r.passed for r in res["rows"])
     print("=" * 84)
     print("VERDICT:",
           "all asserted cross-checks PASS" if all_pass else "SOME cross-checks FAILED")
-    print("  MACs match exactly; DRAM access bytes match ZigZag on the same mapping;")
-    print("  roofline bound classification agrees. See RB-02 for the honest verdict")
-    print("  (output partial-sum spill divergence + absolute-latency caveat).")
+    print("  MACs match exactly; DRAM access bytes match ZigZag on the same mapping")
+    print("  (including the partial-sum-spill case); roofline bound agrees. See RB-02")
+    print("  for the honest verdict (self-consistency vs by-construction; latency caveat).")
     return 0 if all_pass else 1
 
 

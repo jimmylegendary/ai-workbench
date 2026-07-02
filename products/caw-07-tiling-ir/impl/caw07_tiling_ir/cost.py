@@ -82,21 +82,56 @@ def derive(plan: AbstractTilingPlan) -> AbstractTilingPlan:
     # spatial instances run in parallel -> sequential macs per instance = unit*fold
     compute_us = (tile_unit_macs * fold_count) / leaf_rate * 1e6
 
-    # --- traffic: reuse-based backing-store bytes per operand ---
-    tile_bytes: dict[str, int] = {}
+    # --- traffic: reuse-based backing bytes, with per-operand placement, output
+    #     partial-sum SPILL (tier-capacity aware), and spatial reduction combine ---
+    out_op = op.output_operand
+    red_dims = set(op.reduction_dims)
+    red_trips = int(_prod(math.ceil(E[d] / T[d]) for d in red_dims)) if red_dims else 1
+    acc_bytes = op.acc_bytes
+    # innermost on-chip tier = the resident working-set budget (now actually used)
+    onchip = hw.memory_levels[-1] if hw.memory_levels else None
+    onchip_cap = onchip.capacity_bytes if onchip and onchip.capacity_bytes else None
+
+    # per-operand on-chip tile (accumulator uses partial precision)
+    tile_bytes: dict[str, int] = {
+        o.name: int(_prod(T[d] for d in o.dims) * (acc_bytes if o is out_op else op.dtype_bytes))
+        for o in op.operands
+    }
+    working_set = sum(tile_bytes.values())
+    resident = (onchip_cap is None) or (working_set <= onchip_cap)
+
     bytes_from_backing: dict[str, float] = {}
     for o in op.operands:
-        footprint = _prod(E[d] for d in o.dims) * op.dtype_bytes  # whole tensor
-        tile_bytes[o.name] = int(_prod(T[d] for d in o.dims) * op.dtype_bytes)
-        loads = _prod(math.ceil(E[d] / T[d]) for d in dims if d not in o.dims)
-        bytes_from_backing[o.name] = footprint * loads
+        footprint_elems = _prod(E[d] for d in o.dims)
+        if o is out_op:
+            # loops the output is NOT indexed by, excluding the reduction (which is
+            # accumulated, not re-streamed)
+            outer = _prod(math.ceil(E[d] / T[d])
+                          for d in dims if d not in o.dims and d not in red_dims)
+            if (not resident) and red_trips > 1:
+                # partial-sum SPILL: the accumulator can't stay on-chip across the
+                # reduction loop, so each reduction block read-modify-writes it to
+                # backing, at accumulator precision (Timeloop/ZigZag output RMW).
+                b = footprint_elems * acc_bytes * 2.0 * red_trips * outer
+            else:
+                # accumulated on-chip -> written ONCE at final precision.
+                b = footprint_elems * op.dtype_bytes * outer
+            # spatial reduction combine (#1): S partial copies must be reduced
+            # (accumulator-tree / reduction-collective) — not free.
+            for d in red_dims:
+                if S[d] > 1:
+                    b += footprint_elems * acc_bytes * (S[d] - 1)
+            bytes_from_backing[o.name] = b
+        else:
+            loads = _prod(math.ceil(E[d] / T[d]) for d in dims if d not in o.dims)
+            bytes_from_backing[o.name] = footprint_elems * op.dtype_bytes * loads
     total_backing_bytes = sum(bytes_from_backing.values())
 
     backing = _backing_level(hw)
     bw = (backing.bandwidth_bps if backing and backing.bandwidth_bps else 1.0)
     memory_us = total_backing_bytes / bw * 1e6
 
-    footprint_bytes = int(sum(tile_bytes.values()))  # on-chip working set
+    footprint_bytes = int(working_set)  # on-chip working set (accumulator at partial precision)
 
     bound = "compute" if compute_us >= memory_us else "memory"
     kernel_time_us = max(compute_us, memory_us)

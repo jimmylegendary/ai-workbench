@@ -7,11 +7,12 @@
 >
 > **Headline result (real numbers, recorded below): on ZigZag's own bundled GEMM
 > accelerator, our model reproduces ZigZag's per-operand DRAM access bytes EXACTLY
-> (0.00 % rel-err) and total MACs exactly, across three shapes; ideal compute
-> cycles match by construction, and the compute/memory bound agrees.** The one
-> place it diverges — output partial-sum spill on a tiny on-chip buffer, where we
-> under-count O by 75 % — is measured, explained, and gated out of the assertions
-> on purpose. (See §6 for exactly which agreements are independent vs by-construction.)
+> (0.00 % rel-err) and total MACs exactly — across three primary shapes AND the
+> output-partial-sum-spill case (formerly a 75 % under-count, now modeled via
+> per-operand placement + accumulator-precision RMW); ideal compute cycles match by
+> construction, and the compute/memory bound agrees.** The remaining scoped gap is
+> interacting corner-tile remainders. (See §6 for which agreements are independent
+> vs by-construction.)
 
 ---
 
@@ -153,22 +154,26 @@ models classify it **memory-bound**.
 | ideal compute cycles  | 8     | 8      | 0.00 %  | ✅ |
 | roofline bound        | memory| memory | exact   | ✅ |
 
-### 4d. DIVERGENCE (documented, NOT asserted) — 512×512×512 on an 8 KiB L1
+### 4d. OUTPUT PARTIAL-SUM SPILL (now MODELED + asserted) — 512×512×512 on an 8 KiB L1
 
 ZigZag-implied tiles m=512, k=128, n=32. The tiny L1 forces the reduction dim (k)
-to be tiled across DRAM, so ZigZag models the **output partial-sum spill**
-(read-modify-write of partially-accumulated O each k-block). Our Phase-1 traffic
-model counts each operand footprint × reload once and does **not** add that
-partial-sum traffic:
+to be tiled across DRAM, so the output accumulator can't stay resident and is
+**read-modify-written each k-block at accumulator precision** (ZigZag `O:16`).
+`cost.py` now models this (per-operand placement + reduction-aware output traffic:
+`footprint(O) × acc_bytes × 2 × k_trips` once the working set exceeds the on-chip
+tier), so it matches ZigZag **exactly** — a 75% under-count before the
+`iterator_types` + per-operand-placement upgrade; it is now asserted like the primaries:
 
 | metric               | ours       | zigzag     | rel_err  | note |
 |----------------------|------------|------------|----------|------|
-| total MACs           | 134,217,728| 134,217,728| exact    | ✅ still exact |
-| DRAM bytes [I]        | 4,194,304  | 4,194,304  | 0.00 %   | matches |
-| DRAM bytes [W]        | 262,144    | 262,144    | 0.00 %   | matches |
-| **DRAM bytes [O]**    | **1,048,576** | **4,194,304** | **75.0 %** | **we under-count** |
-| DRAM bytes [total]    | 5,505,024  | 8,650,752  | 36.4 %   | driven by O |
+| total MACs           | 134,217,728| 134,217,728| exact    | ✅ |
+| DRAM bytes [I]        | 4,194,304  | 4,194,304  | 0.00 %   | ✅ |
+| DRAM bytes [W]        | 262,144    | 262,144    | 0.00 %   | ✅ |
+| **DRAM bytes [O]**    | **4,194,304** | **4,194,304** | **0.00 %** | ✅ RMW at acc precision |
+| DRAM bytes [total]    | 8,650,752  | 8,650,752  | 0.00 %   | ✅ |
 | roofline bound        | compute    | compute    | exact    | ✅ |
+
+*(O = 512×512 × 2 B acc × 2 RMW × 4 k-trips = 4,194,304.)*
 
 ---
 
@@ -177,13 +182,14 @@ partial-sum traffic:
 `tests/test_zigzag_crosscheck.py` SKIPs cleanly when `zigzag-dse` is absent
 (`HAVE_ZIGZAG` guard) and, when present, asserts: MACs exact, per-operand + total
 DRAM bytes ≤ 15 %, ideal compute cycles ≤ 25 %, bound classification equal — for
-the three primary cases; plus a test that the divergence case *does* diverge on O
-(so we never silently hide it). Observed:
+the three primary cases **and the partial-sum-spill case** (now that spill is
+modeled), plus a dedicated test that the spill case matches O + total exactly.
+Observed:
 
 ```
-tests/test_zigzag_crosscheck.py ......                                    [100%]
-6 passed
-# full suite (existing + new): 14 passed
+tests/test_zigzag_crosscheck.py .......                                   [100%]
+7 passed
+# full suite: core 7 + validate 3 + zigzag 7
 ```
 
 ---
@@ -192,13 +198,15 @@ tests/test_zigzag_crosscheck.py ......                                    [100%]
 
 **Where our reuse-folding AGREES with ZigZag (exactly):**
 - **Total MACs** — always exact; tiling changes time/traffic, never the op count.
-- **Per-operand & total DRAM bytes** whenever the mapping does not spill output
-  partial sums to the backing store. Our identity
-  `bytes = footprint × Π_{non-indexed dims} ⌈extent/tile⌉` reproduces ZigZag's
-  DRAM traffic to the **byte** (0.00 % across all three primary cases, two problem
-  shapes, and — for I and W — even the tiny-buffer case). This includes the high
-  weight-reuse blocking (W streamed 16× in §4a) and the fully-resident minimal
-  case (§4c).
+- **Per-operand & total DRAM bytes** — for both the reuse-blocked regime AND the
+  output partial-sum-spill regime. Our identity
+  `bytes = footprint × Π_{non-indexed dims} ⌈extent/tile⌉`, plus the reduction-aware
+  output term (write-once at final precision when the accumulator is resident;
+  read-modify-write at accumulator precision when it spills across the reduction
+  loop), reproduces ZigZag's DRAM traffic to the **byte** (0.00 % across all three
+  primary cases AND the 8 KiB-L1 spill case — §4a–§4d). This includes the high
+  weight-reuse blocking (W streamed 16× in §4a), the fully-resident minimal case
+  (§4c), and the accumulator RMW (O = 4,194,304 in §4d).
 - **Roofline bound** (compute vs memory) — agrees in every case, including a
   genuine memory-bound point (§4c, AI 5.33 < ridge 8). *Caveat: ZigZag does not
   emit a compute/memory verdict; the cross-check re-derives it by applying
@@ -214,16 +222,14 @@ tests/test_zigzag_crosscheck.py ......                                    [100%]
   the gate uses a 25% cycle tolerance, not an equality assertion.*
 
 **Where we DIVERGE (and why):**
-1. **Output partial-sum spill (§4d, the real limitation).** When the reduction
-   dim is tiled across the backing store (on-chip buffer too small to keep an
-   output tile resident across the k-loop), the hardware must write and re-read
-   partially-accumulated outputs each k-block. ZigZag models this read-modify-write;
-   our Phase-1 traffic model counts each operand's footprint × reload **once** and
-   omits the ~2×(k-blocks) partial-sum DRAM traffic — so we **under-count O**
-   (here by 75 %). This is a known Phase-1 simplification (we do not model
-   accumulator eviction), not a bug in the folding math: I and W still match
-   exactly in the same run. *Fix path for Phase-2: add an output-refill term when
-   `tile[k] < extent[k]` and the accumulator does not fit on-chip.*
+1. **Output partial-sum spill — NOW CLOSED (§4d).** Previously we under-counted O by
+   75 % when the reduction dim was tiled across DRAM (accumulator can't stay
+   resident). `cost.py` now models it: per-operand placement decides residency
+   against the on-chip tier, and a non-resident output accumulator is
+   read-modify-written each reduction block at accumulator precision — matching
+   ZigZag exactly (O = 4,194,304, total = 8,650,752, 0.00 %). The remaining
+   *scoped* gap is interacting **corner-tile remainders** (two remainder dims'
+   short tile counted at full cost) — out of scope for single-level rectangular GEMM.
 2. **Absolute latency vs our roofline.** ZigZag's `latency_total2` (§4a: 1,114,879
    vs our 262,144) is ~4.25× our ideal because the bundled GEMM mapping runs the
    8×8×8 array at only **0.25 spatial utilization** for a dense GEMM, plus
@@ -236,8 +242,8 @@ tests/test_zigzag_crosscheck.py ......                                    [100%]
    costs differ from our roofline; we validate access **counts/ratios**, not pJ.
 
 **Bottom line.** On an independent analytical oracle, CAW-07's repetition-folding
-engine is exact on MACs, exact on DRAM access bytes for the reuse patterns it
-claims to model, and correct on roofline classification. The single modelled
-gap — output partial-sum spill under tight on-chip capacity — is measured and
-scoped for Phase-2. That is a strong, honest confidence signal for numbers on
-hardware that has no silicon yet.
+engine is exact on MACs, exact on DRAM access bytes across BOTH the reuse-blocked
+and the output-partial-sum-spill regimes, and correct on roofline classification.
+The former 75 % O under-count is closed (per-operand placement + accumulator-precision
+RMW); the only remaining scoped gap is interacting corner-tile remainders. That is
+a strong, honest confidence signal for numbers on hardware that has no silicon yet.

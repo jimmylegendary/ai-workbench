@@ -61,6 +61,30 @@ def test_remainders_explicit_and_absent():
     assert tails.get("m") == 300 % 128
 
 
+def test_reduction_spatial_combine_is_not_free():
+    # Splitting a REDUCTION dim across spatial instances (split-K) must pay a
+    # combine (accumulator-tree) on the output — unlike a single-instance pass.
+    hw = linearize(twins.gemmini())
+    onek = matmul(512, 512, 512, hw, tile={"m": 128, "n": 128, "k": 512})   # K in one pass
+    splitk = matmul(512, 512, 512, hw,
+                    tile={"m": 128, "n": 128, "k": 128}, spatial={"k": 4})   # split-K x4
+    yb_one = onek.derived.bytes_from_backing["Y"]
+    yb_split = splitk.derived.bytes_from_backing["Y"]
+    assert yb_split > yb_one, (yb_split, yb_one)  # combine adds output traffic
+
+
+def test_output_spill_costs_more_than_resident():
+    # Same GEMM, same tiles: a tiny on-chip buffer spills the output accumulator
+    # across the reduction loop (RMW) and must cost MORE backing traffic than a
+    # buffer big enough to keep it resident.
+    tiles = {"m": 512, "n": 32, "k": 128}
+    big = matmul(512, 512, 512, linearize(twins.gemmini(scratchpad=256 * 1024)),
+                 tile=tiles, accumulator_bytes=2)
+    tiny = matmul(512, 512, 512, linearize(twins.gemmini(scratchpad=8 * 1024)),
+                  tile=tiles, accumulator_bytes=2)
+    assert tiny.derived.bytes_from_backing["Y"] > big.derived.bytes_from_backing["Y"]
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

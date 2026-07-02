@@ -40,19 +40,21 @@ Two unrelated ecosystems arriving at our model is meaningful validation.
 | Remainder | Presburger `IntegerPolyhedron` / Barvinok (via **islpy**) | **borrow (opt-in)** | keep dependency-free folding as default; add islpy as an OPT-IN exact-count backend for interacting corner tiles / fused / windowed remainders |
 | codegen / `pad` / lowering | transform `pad`, TilingInterface, bufferization | **skip** | never take a lowering/measure path; never `pad`-then-mask (opposite of our explicit-remainder contract); never link libMLIR / import MLIR C++ types |
 
-## Two real correctness gaps MLIR exposed (also close the P2 ZigZag divergence)
+## Two real correctness gaps MLIR exposed — NOW IMPLEMENTED (closed the ZigZag divergence)
 The ZigZag cross-check (RB-02) found ONE divergence: **output partial-sum spill**
-(we under-count O when the reduction dim is tiled across DRAM). MLIR points at the
-two fixes:
-1. **Reduction iterator + combine cost** — today `cost.py` fans spatial instances
-   across a reduction dim with **zero combine cost** (silently free); a real
-   accelerator pays an accumulator-tree / reduction-collective (the intra-device
-   precursor of DTensor `Partial`/AllReduce). Tag the iterator; add the term.
-2. **Per-operand placement / tier-aware traffic** — `cost._backing_level` uses ONE
-   global tier for all operands, so "keep O resident vs spill it across the k-loop"
-   is inexpressible. Per-operand placement lets us model the partial-sum spill.
-→ **Doing #1 + #2 both improves correctness AND closes the one gap the oracle found.**
-(A third upgrade, the optional affine access map, makes conv/windowed ops correct.)
+(we under-counted O when the reduction dim is tiled across DRAM). Both MLIR-pointed
+fixes are now landed, and the divergence is **closed** (RB-02 §4d: O + total now
+0.00 %):
+1. ✅ **Reduction iterator + combine cost** — `Op.iterator_types` (derived
+   parallel/reduction) + `cost.py` now charges a combine (accumulator-tree) when a
+   reduction dim is fanned across spatial instances (split-K is no longer free) —
+   the intra-device precursor of DTensor `Partial`/AllReduce.
+2. ✅ **Per-operand placement / tier-aware traffic** — `Operand.placement` + a
+   capacity-aware residency check; a non-resident output accumulator is
+   read-modify-written each reduction block at accumulator precision
+   (`Op.accumulator_bytes`), modeling the partial-sum spill.
+The remaining upgrade (optional affine access map for conv/windowed ops) is not yet
+implemented; contractions (matmul/attention/MLP) are correct without it.
 
 ## emit / consume MLIR?
 **Borrow concepts; do not couple to MLIR at runtime.** Never emit MLIR for lowering,
@@ -92,6 +94,8 @@ MLIR gives CAW-07 a **principled IR vocabulary** (linalg maps/iterators as the
 semantics behind einsum++; transform dialect as the P4 authoring model; DLTI as
 twin-as-data; memref memory-spaces as per-operand placement; Presburger/islpy as the
 opt-in exact-remainder backend) and an **optional read-only interchange** — but **no
-cost engine and no lowering path**. The folding engine stays CAW-07's core. Highest-
-value next work (also closing the ZigZag gap): **iterator_types + reduction-combine
-cost**, then **per-operand placement / tier-aware traffic**.
+cost engine and no lowering path**. The folding engine stays CAW-07's core. The two
+highest-value borrowings (**iterator_types + reduction-combine** and **per-operand
+placement / tier-aware traffic**) are now implemented and closed the ZigZag gap;
+next borrowings: the **transform-dialect model for P4**, then the optional affine
+access map for conv/windowed ops.
