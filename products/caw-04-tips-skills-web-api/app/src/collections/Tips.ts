@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isAuthenticated, isAuthorOrStaff } from '../access/roles'
+import { bodyMarkdownField, contentBeforeChange, searchTextField } from './shared'
 
 // An atomic AI-usage tip.
 export const Tips: CollectionConfig = {
@@ -11,6 +12,7 @@ export const Tips: CollectionConfig = {
     group: 'Content',
   },
   versions: { drafts: true },
+  hooks: { beforeChange: [contentBeforeChange] },
   access: {
     read: isAuthenticated,
     create: isAuthenticated,
@@ -27,7 +29,9 @@ export const Tips: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     { name: 'summary', type: 'textarea' },
-    { name: 'body', type: 'richText' },
+    bodyMarkdownField,
+    { name: 'body', type: 'richText', admin: { readOnly: true, description: 'Rendered from Markdown.' } },
+    searchTextField,
     {
       name: 'tags',
       type: 'array',

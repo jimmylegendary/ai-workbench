@@ -22,7 +22,9 @@ export default async function NewsPage({
   const payload = await getPayload({ config: await config })
   const { user } = await payload.auth({ headers: await nextHeaders() })
 
-  const where: Where | undefined = tag ? { 'tags.tag': { equals: tag } } : undefined
+  const where: Where = {
+    and: [{ _status: { equals: 'published' } }, ...(tag ? [{ 'tags.tag': { equals: tag } }] : [])],
+  }
   const result = await payload.find({ collection: 'news', limit: 12, page, depth: 0, sort: '-updatedAt', where })
   const eng = await getEngagementMap(payload, 'news', result.docs.map((d) => d.id), user?.id)
 

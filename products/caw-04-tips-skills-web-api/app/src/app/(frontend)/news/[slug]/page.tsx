@@ -7,7 +7,7 @@ import { getEngagement } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { BodyProse } from '@/components/body-prose'
+import { RichBody } from '@/components/rich-body'
 import { EngagementBar } from '@/components/engagement-bar'
 import { OwnerControls, canEditDoc } from '@/components/owner-controls'
 import { SiteHeader } from '@/components/site-header'
@@ -29,9 +29,12 @@ export default async function NewsDetailPage({
     where: { slug: { equals: slug } },
     limit: 1,
     depth: 0,
+    draft: true,
   })
   const item = docs[0]
   if (!item) notFound()
+  const canEdit = canEditDoc(user, item)
+  if (item._status !== 'published' && !canEdit) notFound()
 
   const eng = await getEngagement(payload, 'news', item.id, user?.id)
 
@@ -43,8 +46,18 @@ export default async function NewsDetailPage({
         <a href="/news" className="text-sm text-[var(--color-text-muted)] hover:text-text">
           ← {t.nav.news}
         </a>
-        <OwnerControls type="news" id={item.id} canEdit={canEditDoc(user, item)} t={t} />
-        <h1 className="mt-4 text-[36px] font-bold leading-[42px] tracking-tight">{item.title}</h1>
+        <OwnerControls
+          type="news"
+          id={item.id}
+          slug={item.slug ?? ''}
+          status={item._status}
+          canEdit={canEdit}
+          t={t}
+        />
+        <div className="mt-4 mb-2 flex items-start justify-between gap-3">
+          <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{item.title}</h1>
+          {item._status !== 'published' ? <Badge variant="outline">{t.skill.draft}</Badge> : null}
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-muted)]">
           {item.source ? (
             <span>
@@ -75,7 +88,7 @@ export default async function NewsDetailPage({
         <div className="mt-6 border-y border-border py-3">
           <EngagementBar relationTo="news" id={item.id} initial={eng} canInteract={Boolean(user)} />
         </div>
-        <BodyProse body={item.body} />
+        <RichBody body={item.body} />
       </main>
     </div>
   )

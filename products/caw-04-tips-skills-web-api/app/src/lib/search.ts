@@ -30,10 +30,16 @@ export async function searchContent(
         depth: 0,
         limit,
         where: {
-          or: [
-            { title: { like: term } },
-            { summary: { like: term } },
-            { 'tags.tag': { like: term } },
+          and: [
+            { _status: { equals: 'published' } },
+            {
+              or: [
+                { title: { like: term } },
+                { summary: { like: term } },
+                { 'tags.tag': { like: term } },
+                { searchText: { like: term } },
+              ],
+            },
           ],
         },
       })

@@ -203,6 +203,13 @@ export interface Skill {
   title: string;
   slug?: string | null;
   summary?: string | null;
+  /**
+   * Markdown source — rendered into the rich body on save.
+   */
+  bodyMarkdown?: string | null;
+  /**
+   * Rendered from Markdown.
+   */
   body?: {
     root: {
       type: string;
@@ -218,6 +225,7 @@ export interface Skill {
     };
     [k: string]: unknown;
   } | null;
+  searchText?: string | null;
   tags?:
     | {
         tag: string;
@@ -267,6 +275,13 @@ export interface Tip {
   title: string;
   slug?: string | null;
   summary?: string | null;
+  /**
+   * Markdown source — rendered into the rich body on save.
+   */
+  bodyMarkdown?: string | null;
+  /**
+   * Rendered from Markdown.
+   */
   body?: {
     root: {
       type: string;
@@ -282,6 +297,7 @@ export interface Tip {
     };
     [k: string]: unknown;
   } | null;
+  searchText?: string | null;
   tags?:
     | {
         tag: string;
@@ -304,6 +320,13 @@ export interface News {
   summary?: string | null;
   url?: string | null;
   source?: string | null;
+  /**
+   * Markdown source — rendered into the rich body on save.
+   */
+  bodyMarkdown?: string | null;
+  /**
+   * Rendered from Markdown.
+   */
   body?: {
     root: {
       type: string;
@@ -319,6 +342,7 @@ export interface News {
     };
     [k: string]: unknown;
   } | null;
+  searchText?: string | null;
   publishedAt?: string | null;
   tags?:
     | {
@@ -732,7 +756,9 @@ export interface SkillsSelect<T extends boolean = true> {
   title?: T;
   slug?: T;
   summary?: T;
+  bodyMarkdown?: T;
   body?: T;
+  searchText?: T;
   tags?:
     | T
     | {
@@ -783,7 +809,9 @@ export interface TipsSelect<T extends boolean = true> {
   title?: T;
   slug?: T;
   summary?: T;
+  bodyMarkdown?: T;
   body?: T;
+  searchText?: T;
   tags?:
     | T
     | {
@@ -805,7 +833,9 @@ export interface NewsSelect<T extends boolean = true> {
   summary?: T;
   url?: T;
   source?: T;
+  bodyMarkdown?: T;
   body?: T;
+  searchText?: T;
   publishedAt?: T;
   tags?:
     | T

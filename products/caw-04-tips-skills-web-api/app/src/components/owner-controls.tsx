@@ -1,21 +1,34 @@
-import { DeleteButton } from '@/components/create-content-form'
+import {
+  DeleteButton,
+  PublishButton,
+  UnpublishButton,
+} from '@/components/create-content-form'
 import { Button } from '@/components/ui/button'
 import type { Dictionary } from '@/i18n/dictionaries'
 
 export function OwnerControls({
   type,
   id,
+  slug,
+  status,
   canEdit,
   t,
 }: {
   type: 'skills' | 'tips' | 'news'
   id: number | string
+  slug: string
+  status?: string
   canEdit: boolean
   t: Dictionary
 }) {
   if (!canEdit) return null
   return (
-    <div className="mt-3 flex gap-2">
+    <div className="mt-3 flex flex-wrap gap-2">
+      {status !== 'published' ? (
+        <PublishButton type={type} id={id} slug={slug} label={t.create.publish} />
+      ) : (
+        <UnpublishButton type={type} id={id} slug={slug} label={t.create.unpublish} />
+      )}
       <a href={`/edit/${type}/${id}`}>
         <Button size="sm" variant="outline">
           {t.create.edit}

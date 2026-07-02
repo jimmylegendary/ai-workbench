@@ -114,6 +114,7 @@ export async function generateDigest(payload: Payload, dateStr: string) {
       curatedItems: items.map((i) => ({ relationTo: i.type, value: i.id })),
       generatedBy: 'ai',
       publishedAt: `${dateStr}T00:00:00.000Z`,
+      _status: 'published',
     },
   })
   return article

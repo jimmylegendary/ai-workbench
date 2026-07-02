@@ -25,7 +25,12 @@ export default async function HomePage({
   const payload = await getPayload({ config: await config })
   const { user } = await payload.auth({ headers: await nextHeaders() })
 
-  const where: Where | undefined = tag ? { 'tags.tag': { equals: tag } } : undefined
+  const where: Where = {
+    and: [
+      { _status: { equals: 'published' } },
+      ...(tag ? [{ 'tags.tag': { equals: tag } }] : []),
+    ],
+  }
   const result = await payload.find({
     collection: 'skills',
     limit: 12,

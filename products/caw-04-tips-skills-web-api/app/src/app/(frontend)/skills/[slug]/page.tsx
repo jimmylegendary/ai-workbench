@@ -7,7 +7,7 @@ import { getEngagement } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { BodyProse } from '@/components/body-prose'
+import { RichBody } from '@/components/rich-body'
 import { EngagementBar } from '@/components/engagement-bar'
 import { OwnerControls, canEditDoc } from '@/components/owner-controls'
 import { SiteHeader } from '@/components/site-header'
@@ -29,9 +29,12 @@ export default async function SkillDetailPage({
     where: { slug: { equals: slug } },
     limit: 1,
     depth: 0,
+    draft: true,
   })
   const skill = docs[0]
   if (!skill) notFound()
+  const canEdit = canEditDoc(user, skill)
+  if (skill._status !== 'published' && !canEdit) notFound()
 
   const eng = await getEngagement(payload, 'skills', skill.id, user?.id)
 
@@ -44,15 +47,22 @@ export default async function SkillDetailPage({
         <a href="/" className="text-sm text-[var(--color-text-muted)] hover:text-text">
           {t.skill.back}
         </a>
-        <OwnerControls type="skills" id={skill.id} canEdit={canEditDoc(user, skill)} t={t} />
+        <OwnerControls
+          type="skills"
+          id={skill.id}
+          slug={skill.slug ?? ''}
+          status={skill._status}
+          canEdit={canEdit}
+          t={t}
+        />
 
         <div className="mt-4 mb-2 flex items-start justify-between gap-3">
           <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{skill.title}</h1>
-          {skill.provenance?.validated ? (
-            <Badge variant="public">{t.skill.validated}</Badge>
-          ) : (
+          {skill._status !== 'published' ? (
             <Badge variant="outline">{t.skill.draft}</Badge>
-          )}
+          ) : skill.provenance?.validated ? (
+            <Badge variant="public">{t.skill.validated}</Badge>
+          ) : null}
         </div>
         {skill.summary ? (
           <p className="text-[var(--color-text-muted)]">{skill.summary}</p>
@@ -96,7 +106,7 @@ export default async function SkillDetailPage({
           </Card>
         </div>
 
-        <BodyProse body={skill.body} />
+        <RichBody body={skill.body} />
       </main>
     </div>
   )

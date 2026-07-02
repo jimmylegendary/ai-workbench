@@ -6,7 +6,7 @@ import config from '@/payload.config'
 import { getEngagement } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
-import { BodyProse } from '@/components/body-prose'
+import { RichBody } from '@/components/rich-body'
 import { EngagementBar } from '@/components/engagement-bar'
 import { OwnerControls, canEditDoc } from '@/components/owner-controls'
 import { SiteHeader } from '@/components/site-header'
@@ -28,9 +28,12 @@ export default async function TipDetailPage({
     where: { slug: { equals: slug } },
     limit: 1,
     depth: 0,
+    draft: true,
   })
   const tip = docs[0]
   if (!tip) notFound()
+  const canEdit = canEditDoc(user, tip)
+  if (tip._status !== 'published' && !canEdit) notFound()
 
   const eng = await getEngagement(payload, 'tips', tip.id, user?.id)
 
@@ -42,8 +45,18 @@ export default async function TipDetailPage({
         <a href="/tips" className="text-sm text-[var(--color-text-muted)] hover:text-text">
           ← {t.nav.tips}
         </a>
-        <OwnerControls type="tips" id={tip.id} canEdit={canEditDoc(user, tip)} t={t} />
-        <h1 className="mt-4 text-[36px] font-bold leading-[42px] tracking-tight">{tip.title}</h1>
+        <OwnerControls
+          type="tips"
+          id={tip.id}
+          slug={tip.slug ?? ''}
+          status={tip._status}
+          canEdit={canEdit}
+          t={t}
+        />
+        <div className="mt-4 mb-2 flex items-start justify-between gap-3">
+          <h1 className="text-[36px] font-bold leading-[42px] tracking-tight">{tip.title}</h1>
+          {tip._status !== 'published' ? <Badge variant="outline">{t.skill.draft}</Badge> : null}
+        </div>
         {tip.summary ? <p className="mt-2 text-[var(--color-text-muted)]">{tip.summary}</p> : null}
         {tip.tags && tip.tags.length > 0 ? (
           <div className="mt-4 flex flex-wrap gap-1.5">
@@ -57,7 +70,7 @@ export default async function TipDetailPage({
         <div className="mt-6 border-y border-border py-3">
           <EngagementBar relationTo="tips" id={tip.id} initial={eng} canInteract={Boolean(user)} />
         </div>
-        <BodyProse body={tip.body} />
+        <RichBody body={tip.body} />
       </main>
     </div>
   )

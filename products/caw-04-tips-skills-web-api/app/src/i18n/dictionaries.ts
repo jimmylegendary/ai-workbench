@@ -66,6 +66,10 @@ const ko = {
     save: '저장',
     del: '삭제',
     deleteConfirm: '삭제하시겠습니까?',
+    publish: '게시',
+    unpublish: '게시 취소',
+    draftNotice: '초안입니다 — 게시하면 공개됩니다.',
+    bodyHint: '마크다운 지원 (제목, 목록, 코드, 링크 등)',
   },
   home: {
     title: '스킬',
@@ -188,6 +192,10 @@ const en: typeof ko = {
     save: 'Save',
     del: 'Delete',
     deleteConfirm: 'Delete this?',
+    publish: 'Publish',
+    unpublish: 'Unpublish',
+    draftNotice: 'This is a draft — publish to make it public.',
+    bodyHint: 'Markdown supported (headings, lists, code, links, …)',
   },
   home: {
     title: 'Skills',

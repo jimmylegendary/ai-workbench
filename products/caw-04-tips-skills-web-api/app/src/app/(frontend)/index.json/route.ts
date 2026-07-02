@@ -12,7 +12,13 @@ export async function GET(req: Request) {
   const origin = new URL(req.url).origin
   const items: unknown[] = []
   for (const type of TYPES) {
-    const { docs } = await payload.find({ collection: type, limit: 1000, depth: 0, sort: '-updatedAt' })
+    const { docs } = await payload.find({
+      collection: type,
+      limit: 1000,
+      depth: 0,
+      sort: '-updatedAt',
+      where: { _status: { equals: 'published' } },
+    })
     for (const d of docs as Array<{ id: number | string; slug?: string | null; title?: string; summary?: string | null }>) {
       items.push({
         type,

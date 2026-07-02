@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isAuthenticated, isAuthorOrStaff } from '../access/roles'
+import { bodyMarkdownField, contentBeforeChange, searchTextField } from './shared'
 
 // An AI-related news item (link + optional commentary).
 export const News: CollectionConfig = {
@@ -11,6 +12,7 @@ export const News: CollectionConfig = {
     group: 'Content',
   },
   versions: { drafts: true },
+  hooks: { beforeChange: [contentBeforeChange] },
   access: {
     read: isAuthenticated,
     create: isAuthenticated,
@@ -29,7 +31,9 @@ export const News: CollectionConfig = {
     { name: 'summary', type: 'textarea' },
     { name: 'url', type: 'text' },
     { name: 'source', type: 'text' },
-    { name: 'body', type: 'richText' },
+    bodyMarkdownField,
+    { name: 'body', type: 'richText', admin: { readOnly: true, description: 'Rendered from Markdown.' } },
+    searchTextField,
     { name: 'publishedAt', type: 'date', admin: { position: 'sidebar' } },
     {
       name: 'tags',

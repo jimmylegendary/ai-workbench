@@ -7,7 +7,7 @@ import { getEngagement } from '@/lib/engagement'
 import { getDict } from '@/i18n/server'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { BodyProse } from '@/components/body-prose'
+import { RichBody } from '@/components/rich-body'
 import { EngagementBar } from '@/components/engagement-bar'
 import { SiteHeader } from '@/components/site-header'
 import { ViewPing } from '@/components/view-ping'
@@ -72,7 +72,7 @@ export default async function ArticleDetailPage({
           />
         </div>
 
-        <BodyProse body={article.body} />
+        <RichBody body={article.body} />
 
         {curated.length > 0 ? (
           <section className="mt-8">

@@ -22,7 +22,13 @@ export async function GET(req: Request) {
     '',
   ]
   for (const [type, label] of SECTIONS) {
-    const { docs } = await payload.find({ collection: type, limit: 200, depth: 0, sort: '-updatedAt' })
+    const { docs } = await payload.find({
+      collection: type,
+      limit: 200,
+      depth: 0,
+      sort: '-updatedAt',
+      where: { _status: { equals: 'published' } },
+    })
     const rows = (docs as Array<{ slug?: string | null; title?: string; summary?: string | null }>)
       .filter((d) => d.slug)
       .map((d) => `- [${d.title}](${origin}/${type}/${d.slug})${d.summary ? `: ${d.summary}` : ''}`)

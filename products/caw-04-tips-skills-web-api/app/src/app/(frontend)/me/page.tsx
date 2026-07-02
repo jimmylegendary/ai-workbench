@@ -105,6 +105,9 @@ function ItemRow({ item, t }: { item: ActivityItem; t: Dictionary }) {
   const inner = (
     <Card className="flex items-start gap-3 p-4">
       <Badge variant="outline">{t.types[item.type]}</Badge>
+      {item.status && item.status !== 'published' ? (
+        <Badge variant="accent">{t.skill.draft}</Badge>
+      ) : null}
       <div className="min-w-0">
         <div className="truncate font-medium">{item.title}</div>
         {item.summary ? (

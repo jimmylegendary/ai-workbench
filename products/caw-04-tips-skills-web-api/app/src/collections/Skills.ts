@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isAuthenticated, isAuthorOrStaff } from '../access/roles'
+import { bodyMarkdownField, contentBeforeChange, searchTextField } from './shared'
 
 // A reusable Skill: rich, typed metadata (inputs/outputs/preconditions/
 // provenance) + edit history via drafts/versions. No semver/immutable versions.
@@ -12,6 +13,7 @@ export const Skills: CollectionConfig = {
     group: 'Content',
   },
   versions: { drafts: true },
+  hooks: { beforeChange: [contentBeforeChange] },
   access: {
     read: isAuthenticated,
     create: isAuthenticated,
@@ -28,7 +30,9 @@ export const Skills: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     { name: 'summary', type: 'textarea' },
-    { name: 'body', type: 'richText' },
+    bodyMarkdownField,
+    { name: 'body', type: 'richText', admin: { readOnly: true, description: 'Rendered from Markdown.' } },
+    searchTextField,
     {
       name: 'tags',
       type: 'array',

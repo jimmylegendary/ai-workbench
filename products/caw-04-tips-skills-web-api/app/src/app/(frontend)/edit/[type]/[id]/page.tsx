@@ -4,7 +4,6 @@ import { getPayload } from 'payload'
 
 import config from '@/payload.config'
 import { getDict } from '@/i18n/server'
-import { lexicalToParagraphs } from '@/lib/lexical'
 import { EditContentForm } from '@/components/create-content-form'
 import { SiteHeader } from '@/components/site-header'
 
@@ -28,7 +27,10 @@ export default async function EditContentPage({
 
   let doc: Record<string, unknown> | null = null
   try {
-    doc = (await payload.findByID({ collection: ct, id, depth: 0 })) as Record<string, unknown>
+    doc = (await payload.findByID({ collection: ct, id, depth: 0, draft: true })) as Record<
+      string,
+      unknown
+    >
   } catch {
     notFound()
   }
@@ -48,7 +50,7 @@ export default async function EditContentPage({
   const initial = {
     title: (doc.title as string) ?? '',
     summary: (doc.summary as string) ?? '',
-    bodyText: lexicalToParagraphs(doc.body).join('\n'),
+    bodyText: (doc.bodyMarkdown as string) ?? '',
     tags,
     url: (doc.url as string) ?? '',
     source: (doc.source as string) ?? '',

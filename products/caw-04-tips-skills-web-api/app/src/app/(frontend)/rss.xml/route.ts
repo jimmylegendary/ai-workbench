@@ -14,9 +14,10 @@ const esc = (s: unknown) =>
 export async function GET(req: Request) {
   const payload = await getPayload({ config: await config })
   const origin = new URL(req.url).origin
+  const pub = { _status: { equals: 'published' } }
   const [news, articles] = await Promise.all([
-    payload.find({ collection: 'news', limit: 30, depth: 0, sort: '-updatedAt' }),
-    payload.find({ collection: 'articles', limit: 30, depth: 0, sort: '-publishedAt' }),
+    payload.find({ collection: 'news', limit: 30, depth: 0, sort: '-updatedAt', where: pub }),
+    payload.find({ collection: 'articles', limit: 30, depth: 0, sort: '-publishedAt', where: pub }),
   ])
   const entries = [
     ...news.docs.map((d) => ({ type: 'news', d })),

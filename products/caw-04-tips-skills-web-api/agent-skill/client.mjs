@@ -93,7 +93,8 @@ async function main() {
         summary: flags.summary,
         bodyMarkdown,
         tags,
-        ...flags,
+        url: flags.url,
+        key: flags.key,
       })
       console.log(`DRAFT created: ${url}\n(id ${id}, slug ${slug}) — review and publish on the site; do not auto-publish.`)
     } else if (cmd === 'publish') {

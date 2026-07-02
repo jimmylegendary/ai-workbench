@@ -7,6 +7,8 @@ import { useFormStatus } from 'react-dom'
 import {
   createContentAction,
   deleteContentAction,
+  publishContentAction,
+  unpublishContentAction,
   updateContentAction,
   type CreateState,
 } from '@/app/(frontend)/content-actions'
@@ -68,7 +70,7 @@ export function CreateContentForm({
           </Field>
         </>
       ) : null}
-      <Field label={t.create.bodyField}>
+      <Field label={`${t.create.bodyField} — ${t.create.bodyHint}`}>
         <textarea name="body" rows={6} className={inputCls} />
       </Field>
       <Field label={`${t.create.tagsField} (${t.create.tagsHint})`}>
@@ -118,7 +120,7 @@ export function EditContentForm({
           </Field>
         </>
       ) : null}
-      <Field label={t.create.bodyField}>
+      <Field label={`${t.create.bodyField} — ${t.create.bodyHint}`}>
         <textarea name="body" rows={6} defaultValue={initial.bodyText} className={inputCls} />
       </Field>
       <Field label={`${t.create.tagsField} (${t.create.tagsHint})`}>
@@ -152,6 +154,55 @@ export function DeleteButton({
         if (window.confirm(confirmText)) start(() => void deleteContentAction(type, id))
       }}
       className="text-[var(--color-danger)]"
+    >
+      {label}
+    </Button>
+  )
+}
+
+export function PublishButton({
+  type,
+  id,
+  slug,
+  label,
+}: {
+  type: 'skills' | 'tips' | 'news'
+  id: number | string
+  slug: string
+  label: string
+}) {
+  const [pending, start] = useTransition()
+  return (
+    <Button
+      type="button"
+      size="sm"
+      disabled={pending}
+      onClick={() => start(() => void publishContentAction(type, id, slug))}
+    >
+      {label}
+    </Button>
+  )
+}
+
+export function UnpublishButton({
+  type,
+  id,
+  slug,
+  label,
+}: {
+  type: 'skills' | 'tips' | 'news'
+  id: number | string
+  slug: string
+  label: string
+}) {
+  const [pending, start] = useTransition()
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      onClick={() => start(() => void unpublishContentAction(type, id, slug))}
     >
       {label}
     </Button>

@@ -8,6 +8,7 @@ export interface ActivityItem {
   title: string
   slug?: string | null
   summary?: string | null
+  status?: string | null
 }
 
 const toItem = (type: ContentType, doc: Record<string, unknown>): ActivityItem => ({
@@ -16,6 +17,7 @@ const toItem = (type: ContentType, doc: Record<string, unknown>): ActivityItem =
   title: (doc.title as string) ?? '(untitled)',
   slug: (doc.slug as string) ?? null,
   summary: (doc.summary as string) ?? null,
+  status: (doc._status as string) ?? null,
 })
 
 // Resolve depth:1 polymorphic { relationTo, value: doc } rows into ActivityItems.
@@ -30,9 +32,9 @@ const resolveItems = (rows: Array<Record<string, unknown>>): ActivityItem[] =>
 
 export async function getMyActivity(payload: Payload, userId: number | string) {
   const [skills, tips, news, favorites, likes] = await Promise.all([
-    payload.find({ collection: 'skills', where: { author: { equals: userId } }, depth: 0, limit: 50, sort: '-updatedAt' }),
-    payload.find({ collection: 'tips', where: { author: { equals: userId } }, depth: 0, limit: 50, sort: '-updatedAt' }),
-    payload.find({ collection: 'news', where: { author: { equals: userId } }, depth: 0, limit: 50, sort: '-updatedAt' }),
+    payload.find({ collection: 'skills', where: { author: { equals: userId } }, depth: 0, limit: 50, sort: '-updatedAt', draft: true }),
+    payload.find({ collection: 'tips', where: { author: { equals: userId } }, depth: 0, limit: 50, sort: '-updatedAt', draft: true }),
+    payload.find({ collection: 'news', where: { author: { equals: userId } }, depth: 0, limit: 50, sort: '-updatedAt', draft: true }),
     payload.find({ collection: 'favorites', where: { user: { equals: userId } }, depth: 1, limit: 100, sort: '-createdAt' }),
     payload.find({
       collection: 'reactions',

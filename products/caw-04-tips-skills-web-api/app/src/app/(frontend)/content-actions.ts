@@ -6,7 +6,6 @@ import { revalidatePath } from 'next/cache'
 import { getPayload } from 'payload'
 
 import config from '@/payload.config'
-import { plaintextToLexical } from '@/lib/lexical'
 
 const CREATABLE = ['skills', 'tips', 'news'] as const
 type Creatable = (typeof CREATABLE)[number]
@@ -57,7 +56,7 @@ export async function createContentAction(
   const data: Record<string, unknown> = { title, slug, author: user.id }
   if (summary) data.summary = summary
   if (tags.length) data.tags = tags
-  if (bodyText) data.body = plaintextToLexical(bodyText)
+  if (bodyText) data.bodyMarkdown = bodyText
   if (type === 'news') {
     const url = String(formData.get('url') || '').trim()
     const source = String(formData.get('source') || '').trim()
@@ -98,7 +97,7 @@ export async function updateContentAction(
     .filter(Boolean)
     .map((tag) => ({ tag }))
 
-  const data: Record<string, unknown> = { title, summary, tags, body: plaintextToLexical(bodyText) }
+  const data: Record<string, unknown> = { title, summary, tags, bodyMarkdown: bodyText }
   if (type === 'news') {
     data.url = String(formData.get('url') || '').trim()
     data.source = String(formData.get('source') || '').trim()
@@ -111,6 +110,35 @@ export async function updateContentAction(
   }
   revalidatePath(listPath(type as Creatable))
   redirect(`/${type}/${slug}`)
+}
+
+export async function publishContentAction(type: string, id: number | string, slug: string) {
+  await setStatus(type, id, 'published')
+  redirect(`/${type}/${slug}`)
+}
+
+export async function unpublishContentAction(type: string, id: number | string, slug: string) {
+  await setStatus(type, id, 'draft')
+  redirect(`/${type}/${slug}`)
+}
+
+async function setStatus(type: string, id: number | string, status: 'published' | 'draft') {
+  if (!CREATABLE.includes(type as Creatable)) return
+  const payload = await getPayload({ config: await config })
+  const { user } = await payload.auth({ headers: await nextHeaders() })
+  if (!user) return
+  try {
+    await payload.update({
+      collection: type as Creatable,
+      id,
+      data: { _status: status },
+      overrideAccess: false,
+      user,
+    })
+  } catch {
+    return
+  }
+  revalidatePath(listPath(type as Creatable))
 }
 
 export async function deleteContentAction(type: string, id: number | string) {
