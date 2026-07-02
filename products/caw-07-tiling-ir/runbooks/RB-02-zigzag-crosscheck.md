@@ -6,11 +6,12 @@
 > independent analytical model" gate promised in the design brief / roadmap.
 >
 > **Headline result (real numbers, recorded below): on ZigZag's own bundled GEMM
-> accelerator, our model reproduces ZigZag's DRAM access bytes EXACTLY (0.00 %
-> rel-err, every operand), total MACs exactly, ideal compute cycles exactly, and
-> the roofline bound classification (compute vs memory) exactly.** The one place
-> it diverges — output partial-sum spill on a tiny on-chip buffer — is measured,
-> explained, and gated out of the assertions on purpose.
+> accelerator, our model reproduces ZigZag's per-operand DRAM access bytes EXACTLY
+> (0.00 % rel-err) and total MACs exactly, across three shapes; ideal compute
+> cycles match by construction, and the compute/memory bound agrees.** The one
+> place it diverges — output partial-sum spill on a tiny on-chip buffer, where we
+> under-count O by 75 % — is measured, explained, and gated out of the assertions
+> on purpose. (See §6 for exactly which agreements are independent vs by-construction.)
 
 ---
 
@@ -71,8 +72,12 @@ as the published reference.)
 ## 2. Configs used
 
 - **Accelerator (primary):** ZigZag's bundled `inputs/hardware/gemm_l1_l3.yaml`
-  — an 8×8×8 int8 operational array (512 MAC/cycle), a ~128 KiB L1, and an L3/DRAM
-  backing store (512-bit rw port). **Mapping:** bundled `inputs/mapping/gemm_l1_l3.yaml`.
+  — an 8×8×8 int8 operational array (512 MAC/cycle), an L1 of **943718 bits ≈ 115 KiB**
+  (ZigZag's `size` is in *bits*; "128 KiB − 10%"), and an L3/DRAM backing store
+  (512-bit rw port). **Mapping:** bundled `inputs/mapping/gemm_l1_l3.yaml`.
+  *On-chip capacity is set faithfully on the twin but is **not consumed by the
+  Phase-1 cost model** (`cost.derive()` never reads capacity — only `validate.py`'s
+  I/O-lower-bound does), so it cannot influence or rig the DRAM-traffic result.*
 - **Accelerator (divergence demo):** `impl/validation/configs/gemm_small_l1.yaml`
   — identical array + hierarchy but the L1 is shrunk to **8 KiB** to force the
   reduction dim to be tiled across DRAM. Same bundled mapping.
@@ -195,9 +200,18 @@ tests/test_zigzag_crosscheck.py ......                                    [100%]
   weight-reuse blocking (W streamed 16× in §4a) and the fully-resident minimal
   case (§4c).
 - **Roofline bound** (compute vs memory) — agrees in every case, including a
-  genuine memory-bound point (§4c, AI 5.33 < ridge 8).
+  genuine memory-bound point (§4c, AI 5.33 < ridge 8). *Caveat: ZigZag does not
+  emit a compute/memory verdict; the cross-check re-derives it by applying
+  CAW-07's OWN classifier to ZigZag's byte/cycle outputs. So for the matched
+  primaries (identical bytes + cycles) the agreement is arithmetic, not an
+  independent ZigZag corroboration — it is a self-consistency check, exercised
+  non-trivially only where the byte/cycle numbers differ (§4c memory-bound, §4d).*
 - **Ideal compute cycles** — our roofline compute time equals ZigZag's
   `ideal_cycle` exactly, because we model the array at its nominal 512 MAC/cycle.
+  *This match is exact BY CONSTRUCTION (same nominal rate) and holds only because
+  ZigZag's chosen tiles evenly divide the extents here (powers of two); for an
+  imperfectly-factorized tile our `ceil`'d fold over-counts compute — which is why
+  the gate uses a 25% cycle tolerance, not an equality assertion.*
 
 **Where we DIVERGE (and why):**
 1. **Output partial-sum spill (§4d, the real limitation).** When the reduction

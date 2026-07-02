@@ -95,6 +95,11 @@ def gemm_twin(onchip_bytes: int, freq_hz: float = FREQ_HZ) -> dict:
     so our compute time equals ZigZag's ideal/full-utilization compute cycles),
     an on-chip SRAM of ``onchip_bytes``, and a DRAM backing store whose bandwidth
     is the l3 port width (512 bits/cycle).
+
+    NOTE: ``capacity_bytes`` is NOT consumed by the Phase-1 cost model
+    (cost.derive() never reads capacity — only validate.py's separate I/O-lower-
+    bound uses it). So on-chip capacity cannot influence or rig the DRAM-traffic
+    cross-check below; we still set it faithfully to mirror the ZigZag config.
     """
     return {
         "level_id": "l3", "role": "offchip", "instances": 1,
@@ -247,10 +252,15 @@ class Case:
     note: str = ""
 
 
+# ZigZag's gemm_l1_l3.yaml L1 `size` is in BITS (943718 bits = "128 KiB - 10%"
+# ~= 115 KiB). Convert to bytes for the twin so it mirrors the accelerator. (This
+# value is inert in the Phase-1 cost path — see gemm_twin — so it changes no
+# number here; it just keeps the twin faithful and future-proof.)
+L1_BYTES = 943718 // 8  # ~115 KiB
 PRIMARY_CASES = [
-    Case("compute-bound 512x512x512", 512, 512, 512, 943718),
-    Case("compute-bound 256x256x512", 256, 256, 512, 943718),
-    Case("memory-bound  16x16x16",    16,  16,  16,  943718,
+    Case("compute-bound 512x512x512", 512, 512, 512, L1_BYTES),
+    Case("compute-bound 256x256x512", 256, 256, 512, L1_BYTES),
+    Case("memory-bound  16x16x16",    16,  16,  16,  L1_BYTES,
          note="low arithmetic intensity (AI<ridge) -> memory-bound; both agree"),
 ]
 

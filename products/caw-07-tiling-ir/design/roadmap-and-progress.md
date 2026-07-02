@@ -10,7 +10,7 @@ multi-device work — the bulk of the value and difficulty — is not built.
 |---|---|---|---|
 | P0 | Design (brief + prior-art survey + paper) | **done** | brief + 87-project survey + paper published (private repo) |
 | P1 | Core IR *skeleton* | **done (skeleton/PoC)** | runs; `AbstractTilingPlan` + `linearize` + einsum++ + a **toy** repetition-folding cost; GPU/NPU **toy** twins; 5 invariant tests. Cost is **unvalidated**. |
-| **P2** | **Trustworthy cost + real NPU twin + validation** | **in progress — twins + first-principles gate DONE** | ✅ five faithful public-spec NPU twins ([hardware-twins.md](hardware-twins.md): Eyeriss/Gemmini/TPU v1/v4/NVDLA); ✅ exact op-count; ✅ validation gate `validate.py` (A1 compulsory / A2 I/O-lower-bound / A3 peak / A5 roofline) passes on all twins; ✅ TPU v1 ridge = 1350 MAC/byte matches Jouppi'17. **Remaining:** numeric cross-check vs ZigZag (`zigzag-dse`) on DRAM-access counts (~10–15%); richer cost (per-tier staging/placement, occupancy); remainder tail costed at real size. |
+| **P2** | **Trustworthy cost + real NPU twin + validation** | **in progress — twins + first-principles gate DONE** | ✅ five faithful public-spec NPU twins ([hardware-twins.md](hardware-twins.md): Eyeriss/Gemmini/TPU v1/v4/NVDLA); ✅ exact op-count; ✅ validation gate `validate.py` (A1 compulsory / A2 I/O-lower-bound / A3 peak / A5 roofline) passes on all twins; ✅ TPU v1 ridge = 1350 MAC/byte matches Jouppi'17. ✅ **ZigZag numeric cross-check** ([RB-02](../runbooks/RB-02-zigzag-crosscheck.md)): on ZigZag's bundled GEMM accelerator our per-operand DRAM bytes match **exactly (0.00%)** across 3 shapes (MACs exact, bound agrees), with one **documented, gated** divergence — output partial-sum spill on a tiny L1 (we under-count O by 75%). **Remaining:** model partial-sum spill; per-tier staging/placement + occupancy; real-size remainder cost. |
 | P3 | syntorch runtime capture (read-only) | **runbook only** ([RB-01](../runbooks/RB-01-syntorch-runtime-capture.md)); CAW-07 `CaptureSink`+mock harness = TODO | **team** implements the `TorchDispatchMode`; gates G1–G5 in RB-01. *Cannot self-implement (internal system).* |
 | P4 | Schedule-library front (multi-level / fusion / per-operand) | not started | express a multi-level mapping + a fused attention (flash-style) and cost it; matches P2 model on the single-level case |
 | P5 | Three-tier span (inter-device mesh + ASTRA-sim network) | not started | emit an ASTRA-sim-consumable collectives trace; reconcile compute↔network timelines on a TP/PP example |
@@ -38,10 +38,13 @@ multi-device work — the bulk of the value and difficulty — is not built.
    + a mock (syntorch-free) harness so the sink is testable now.
 3. P4 → P6 after P2 fully closes.
 
-Honest note: P2's *self-consistency* gate (bounds + published ridge) now holds —
-the numbers are no longer "toy" and cannot violate physics — but the **numeric
-oracle cross-check (ZigZag) is not yet run**, so absolute accuracy is still
-unproven. Treat magnitudes as defensible, absolute pJ/cycles as provisional.
+Honest note: P2 now has BOTH the self-consistency gate (physical bounds + the
+published TPU-v1 ridge) AND an **independent numeric cross-check against ZigZag**:
+our reuse-folding reproduces ZigZag's per-operand DRAM traffic **to the byte** on
+its bundled GEMM accelerator — except **output partial-sum spill** (reduction dim
+tiled across DRAM), a known Phase-1 gap where we under-count. So the traffic model
+is validated for the non-spill regime; modelling partial-sum spill is the next
+cost-model item. Absolute energy (pJ) is still not compared (tech-node dependent).
 
 ## What P1 actually proved (so it's not oversold)
 - The *architecture* works end-to-end: an arbitrary hierarchy linearizes; a plan's
