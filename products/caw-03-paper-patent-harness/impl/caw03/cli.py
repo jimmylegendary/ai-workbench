@@ -146,6 +146,29 @@ def cmd_events(args) -> int:
         h.close()
 
 
+def cmd_reviews(args) -> int:
+    h = _harness(args)
+    try:
+        reviews = h.get_reviews(args.bundle_id)
+        if not reviews:
+            print("(no reviews captured — run the AI reviewer pipeline to produce one)")
+        for r in reviews:
+            print(f"\n=== review #{r['id']}  venue={r['venue']}  reviewer={r['reviewer']} ===")
+            print(f"  verdict: {r['verdict']}   overall: {r['overall']}")
+            if r["scores"]:
+                print("  scores: " + ", ".join(f"{k}={v}" for k, v in r["scores"].items()))
+            for w in r["weaknesses"]:
+                print(f"  - weakness: {w}")
+            for g in r["guidance"]:
+                if isinstance(g, dict):
+                    print(f"  → do: {g.get('action')}  | gain: {g.get('quality_gain')}  | benefit: {g.get('benefit')}")
+                else:
+                    print(f"  → {g}")
+        return 0
+    finally:
+        h.close()
+
+
 def cmd_interlocks(args) -> int:
     h = _harness(args)
     try:
@@ -287,6 +310,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("events", help="hash-chained lifecycle event log + verify")
     s.set_defaults(func=cmd_events)
+
+    s = sub.add_parser("reviews", help="show captured AI reviews / quality assessments")
+    s.add_argument("bundle_id")
+    s.set_defaults(func=cmd_reviews)
 
     s = sub.add_parser("interlocks", help="list patent-first interlocks")
     s.add_argument("bundle_id", nargs="?", default=None)

@@ -57,6 +57,23 @@ class SliceTest(unittest.TestCase):
         review = self.h.run_review("demo-2026-07")
         self.assertEqual(review["verdict"], "ready_for_human_review")
 
+    def test_gate_requires_experimental_results(self):
+        # the tool demands an evaluation — a bundle with no results is refused at the
+        # gate rather than letting the engine fabricate one.
+        import json
+        bundle = {
+            "bundle_id": "no-results", "boundary": "public",
+            "claims": [{"claim_id": "n1", "type": "P2", "boundary": "public",
+                        "visibility": "team", "statement": "a claim with no evaluation",
+                        "evidence": [{"id": "e", "kind": "caw02_evidence", "ref": "caw02://x"}]}],
+            "results": [],
+        }
+        p = Path(self.tmp.name) / "no_results.json"
+        p.write_text(json.dumps(bundle), encoding="utf-8")
+        self.h.import_bundle(str(p))
+        with self.assertRaises(Exception):
+            self.h.run_gate("no-results")
+
     def test_source_artifact_is_admissible_evidence(self):
         # the "code + design docs → paper" case: a repo file @ commit is a concrete,
         # resolvable artifact and counts as evidence; generated prose still does not.

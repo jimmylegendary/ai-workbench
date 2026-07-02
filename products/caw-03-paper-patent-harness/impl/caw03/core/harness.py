@@ -125,6 +125,13 @@ class Harness:
         if not claims:
             raise ValueError(f"no claims for bundle {bundle_id!r} (import it first)")
         profile = load_gate_profile(self.config.gate_profile)
+        # The tool requires an evaluation: refuse to proceed toward a paper with no
+        # results rather than let the engine fabricate one (evidence-gate philosophy).
+        if profile.require_results and not self.ledger.get_results(bundle_id):
+            raise ValueError(
+                f"gate profile {profile.name!r} requires experimental results, but bundle "
+                f"{bundle_id!r} has none. CAW-03 will not fabricate an evaluation — supply "
+                f"results (a functional/e2e suite counts) in the bundle before drafting.")
         # Patent-first interlock (L3a): a patent-sensitive claim gets a HELD interlock
         # at gate time; the gate then reads the current status (HELD → default-deny).
         for c in claims:
@@ -435,6 +442,25 @@ class Harness:
 
     def list_interlocks(self, bundle_id: str | None = None) -> list[dict]:
         return self.ledger.list_interlocks(bundle_id)
+
+    # -- op: record_review / get_reviews (AI reviewer + quality assessment) ---
+    def record_review(self, bundle_id: str, venue: str | None, reviewer: str,
+                      scores: dict, verdict: str | None, overall: float | None,
+                      weaknesses: list, guidance: list) -> dict:
+        """Capture a venue-specific AI review / quality assessment as a governed,
+        audited artifact. The review itself is produced by the reviewer pipeline
+        (paper-autoraters + a venue-rubric peer-review); this op records it."""
+        art_id = self._artifact_id(bundle_id)
+        rid = self.ledger.record_review(art_id, venue, reviewer, scores, verdict,
+                                        overall, weaknesses, guidance, _now())
+        self.ledger.append_lifecycle_event(
+            art_id, self.ledger.get_artifact(art_id)["state"] if self.ledger.get_artifact(art_id) else None,
+            f"reviewed:{venue or 'generic'}", actor=reviewer, now=_now(),
+            reason=venue, detail={"verdict": verdict, "overall": overall, "review_id": rid})
+        return {"review_id": rid, "venue": venue, "verdict": verdict, "overall": overall}
+
+    def get_reviews(self, bundle_id: str) -> list[dict]:
+        return self.ledger.get_reviews(self._artifact_id(bundle_id))
 
     # -- op: get_lifecycle ---------------------------------------------------
     def get_lifecycle(self) -> list[dict]:

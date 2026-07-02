@@ -102,6 +102,18 @@ CREATE TABLE IF NOT EXISTS interlock (
     actor TEXT,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS review (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_id TEXT NOT NULL,
+    venue TEXT,
+    reviewer TEXT NOT NULL,
+    scores TEXT NOT NULL DEFAULT '{}',
+    verdict TEXT,
+    overall REAL,
+    weaknesses TEXT NOT NULL DEFAULT '[]',
+    guidance TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS engine_run (
     id TEXT PRIMARY KEY,
     engine_adapter TEXT NOT NULL,
@@ -441,3 +453,27 @@ class Ledger:
         else:
             rows = self.conn.execute("SELECT * FROM interlock ORDER BY claim_id").fetchall()
         return [dict(r) for r in rows]
+
+    # ---- AI review / quality assessment (governed, audited artifact) --------
+    def record_review(self, artifact_id: str, venue: str | None, reviewer: str,
+                      scores: dict, verdict: str | None, overall: float | None,
+                      weaknesses: list, guidance: list, now: str) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO review (artifact_id, venue, reviewer, scores, verdict, overall, "
+            " weaknesses, guidance, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (artifact_id, venue, reviewer, json.dumps(scores), verdict, overall,
+             json.dumps(weaknesses), json.dumps(guidance), now))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def get_reviews(self, artifact_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM review WHERE artifact_id=? ORDER BY id", (artifact_id,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["scores"] = json.loads(d["scores"])
+            d["weaknesses"] = json.loads(d["weaknesses"])
+            d["guidance"] = json.loads(d["guidance"])
+            out.append(d)
+        return out

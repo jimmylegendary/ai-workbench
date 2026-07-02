@@ -198,6 +198,10 @@ class GateProfile:
     non_relaxable: dict = field(
         default_factory=lambda: {"generated_text_is_evidence": False}
     )
+    # The tool REQUIRES an evaluation: a paper cannot be drafted from an empty result
+    # set — CAW-03 demands real experimental results rather than fabricating an
+    # evaluation. A functional-only result set (e.g. an e2e suite) satisfies this.
+    require_results: bool = True
 
 
 @dataclass

@@ -64,6 +64,7 @@ def load_gate_profile(name: str) -> GateProfile:
         require_result_ref_by_type=raw.get("require_result_ref_by_type", {}),
         patent_sensitive_types=raw.get("patent_sensitive_types", ["P3"]),
         non_relaxable=raw.get("non_relaxable", {"generated_text_is_evidence": False}),
+        require_results=raw.get("require_results", True),
     )
     _validate_profile_invariants(profile)
     return profile
