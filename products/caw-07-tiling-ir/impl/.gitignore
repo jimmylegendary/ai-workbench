@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 *.egg-info/
 .pytest_cache/
+# ZigZag cross-check: isolated oracle venv + its run dumps (never commit)
+.venv-zigzag/
+outputs/
+validation/outputs/

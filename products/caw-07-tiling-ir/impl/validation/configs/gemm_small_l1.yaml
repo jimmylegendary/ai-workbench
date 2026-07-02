@@ -1,0 +1,111 @@
+# A small-on-chip-buffer variant of ZigZag's bundled gemm_l1_l3 example.
+# Identical 8x8x8 int8 array + 2-level (l1 -> DRAM) hierarchy, but the L1 is
+# shrunk to 8 KiB so a large GEMM cannot keep an operand resident across the
+# outer loops -> heavy DRAM re-streaming -> a MEMORY-bound roofline point.
+# Used only to exercise the memory branch of the bound classifier in the
+# CAW-07 <-> ZigZag cross-check (validation/zigzag_crosscheck.py).
+name: gemm_small_l1
+
+memories:
+  reg_O:
+    size: 32
+    r_cost: 0.02
+    w_cost: 0.02
+    area: 0
+    latency: 1
+    auto_cost_extraction: False
+    operands: [O]
+    ports:
+      - name: r_port_1
+        type: read
+        bandwidth_min: 32
+        bandwidth_max: 32
+        allocation:
+          - O, tl
+      - name: r_port_2
+        type: read
+        bandwidth_min: 32
+        bandwidth_max: 32
+        allocation:
+          - O, th
+      - name: w_port_1
+        type: write
+        bandwidth_min: 32
+        bandwidth_max: 32
+        allocation:
+          - O, fh
+      - name: w_port_2
+        type: write
+        bandwidth_min: 32
+        bandwidth_max: 32
+        allocation:
+          - O, fl
+    served_dimensions: [D2]
+
+  l1:
+    size: 65536 # 8 KiB (bits) -> tiny on-chip buffer, forces DRAM re-streaming
+    r_cost: 22.9
+    w_cost: 52.01
+    area: 0
+    latency: 1
+    operands: [I1, I2, O]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 512
+        allocation:
+          - I1, tl
+      - name: rw_port_2
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 512
+        allocation:
+          - I2, tl
+      - name: rw_port_3
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 2048
+        allocation:
+          - O, tl
+          - O, fl
+      - name: rw_port_4
+        type: read_write
+        bandwidth_min: 64
+        bandwidth_max: 512
+        allocation:
+          - I1, fh
+          - I2, fh
+          - O, fh
+          - O, th
+    served_dimensions: [D1, D2, D3]
+
+  l3:
+    size: 10000000000
+    r_cost: 700
+    w_cost: 750
+    area: 0
+    latency: 1
+    operands: [I1, I2, O]
+    ports:
+      - name: rw_port_1
+        type: read_write
+        bandwidth_min: 512
+        bandwidth_max: 512
+        allocation:
+          - I1, fh
+          - I1, tl
+          - I2, fh
+          - I2, tl
+          - O, fh
+          - O, tl
+          - O, fl
+          - O, th
+    served_dimensions: [D1, D2, D3]
+
+operational_array:
+  input_precision: [8, 8]
+  unit_energy: 0.04
+  unit_area: 1
+  dimensions: [D1, D2, D3]
+  sizes: [8, 8, 8]
