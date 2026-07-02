@@ -54,6 +54,16 @@ curl 'http://localhost:3000/api/search?q=prompt' \
 
 `author` is auto-set from the authenticated user. Payload also exposes full REST/GraphQL at `/api/*`.
 
+## Drafts, publishing & the agent skill
+
+- **Rich body**: author content as **Markdown** (`bodyMarkdown`); a hook converts it to lexical and the
+  detail pages render it richly (headings, lists, code, links, bold). Web forms + REST both use this.
+- **Draft → Publish (no auto-publish)**: creates default to `_status: draft`. Drafts are hidden from public
+  lists/search/feeds and return 404 to non-authors; the author/staff see them (with a **Publish** button) and
+  via `/me`. Publish = `PATCH /api/{type}/{id} { "_status": "published" }` (or the button).
+- **Agent skill**: `../agent-skill/` (`SKILL.md` + `client.mjs`). An AI uses it to create a **draft** and
+  return the review link (never auto-publishing), plus search/read/publish. See `../design/07-backend-api/rest-api-reference.md`.
+
 ## Newsletter + AI curation
 
 `pnpm digest` (or the **Generate digest** button on `/me` for admin/curator) builds an AI-curated
@@ -117,7 +127,8 @@ src/
 ## Not yet wired (roadmap)
 
 Actual email send (connect the n8n webhook per `design/10-runbooks/RB-newsletter-n8n-integration.md`) ·
-richer search (Postgres FTS / Meilisearch) · comments/threads · token-based one-click unsubscribe.
+search upgrade to Postgres FTS / Meilisearch (current is multi-field LIKE) · comments/threads ·
+token-based one-click unsubscribe.
 
-Done recently: web edit/delete of own content, scheduled digest (Payload Jobs / cron + HTTP runner),
-view dedup, tag filtering + pagination, agent endpoints (`/index.json`, `/llms.txt`, `/rss.xml`).
+Done recently: rich Markdown body + draft/publish workflow, agent skill (`../agent-skill/`), multi-field
+search, web edit/delete, scheduled digest (Payload Jobs), view dedup, tags + pagination, agent feeds.
