@@ -29,7 +29,13 @@ export async function searchContent(
         collection: type,
         depth: 0,
         limit,
-        where: { or: [{ title: { like: term } }, { summary: { like: term } }] },
+        where: {
+          or: [
+            { title: { like: term } },
+            { summary: { like: term } },
+            { 'tags.tag': { like: term } },
+          ],
+        },
       })
       return res.docs.map(
         (d): SearchHit => ({
