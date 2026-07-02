@@ -23,4 +23,4 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-caw03 = ["profiles/*.json", "schema/*.cue"]
+caw03 = ["profiles/*.json", "schema/*.cue", "venues.json"]

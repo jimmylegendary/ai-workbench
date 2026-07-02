@@ -14,6 +14,7 @@ from pathlib import Path
 from .core.models import GateProfile
 
 PROFILES_DIR = Path(__file__).parent / "profiles"
+VENUES_PATH = Path(__file__).parent / "venues.json"
 
 DEFAULT_ADAPTERS: dict = {
     "source": {"id": "caw02-bundle", "enabled": True, "config": {}},
@@ -68,6 +69,20 @@ def load_gate_profile(name: str) -> GateProfile:
     )
     _validate_profile_invariants(profile)
     return profile
+
+
+def load_venues() -> dict:
+    """Load the venue registry (rubric/bar per venue) used by the AI reviewer."""
+    return json.loads(VENUES_PATH.read_text(encoding="utf-8"))
+
+
+def load_venue(name: str) -> dict:
+    reg = load_venues()
+    venue = reg.get("venues", {}).get(name)
+    if not venue:
+        available = ", ".join(reg.get("venues", {}))
+        raise KeyError(f"unknown venue {name!r}; available: {available}")
+    return venue
 
 
 def _validate_profile_invariants(profile: GateProfile) -> None:

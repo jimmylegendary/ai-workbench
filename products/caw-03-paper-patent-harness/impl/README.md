@@ -185,6 +185,14 @@ examples/bundle_demo/   # a CAW-02-style bundle fixture (gated-passable + a bloc
   egress `decide()` + redaction re-sweep), fail-closed, hash-chained lifecycle log.
 - **L3a patent-first interlock:** HELD-by-default for patent-sensitive claims + human
   `release-interlock`, audited.
+- **Requires-results + AI reviewer:** the tool refuses to draft without real results
+  (`require_results`); a venue-specific AI reviewer (`caw03 venues` → rubric/bar) + autoraters
+  produce a scored quality assessment + improvement guidance, captured via `caw03 reviews`.
+- **Code + design docs → paper:** `source_artifact` evidence + `systems-paper` profile let a
+  repo be aggregated into a governed bundle and written up honestly.
+
+**Operator guide (install requirements, principles, usage, and AI-model selection for
+self-hosted OSS vs Claude CLI): [`docs/GUIDE.md`](./docs/GUIDE.md).**
 
 ## Not built yet (later runbooks)
 

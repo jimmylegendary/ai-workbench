@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .config import HarnessConfig
+from .config import HarnessConfig, load_venues
 from .core.harness import Harness
 from .core.models import GateReport, GateStatus
 
@@ -144,6 +144,17 @@ def cmd_events(args) -> int:
         return 0
     finally:
         h.close()
+
+
+def cmd_venues(args) -> int:
+    reg = load_venues()
+    for domain, names in reg.get("domains", {}).items():
+        print(f"\n[{domain}]")
+        for n in names:
+            v = reg["venues"].get(n, {})
+            print(f"  {n:12} bar={v.get('empirical_bar','?'):7} {v.get('full_name','')}")
+    print("\nUse a venue with the AI reviewer: it applies that venue's rubric/bar.")
+    return 0
 
 
 def cmd_reviews(args) -> int:
@@ -314,6 +325,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("reviews", help="show captured AI reviews / quality assessments")
     s.add_argument("bundle_id")
     s.set_defaults(func=cmd_reviews)
+
+    s = sub.add_parser("venues", help="list AI-reviewer target venues (rubric/bar per venue)")
+    s.set_defaults(func=cmd_venues)
 
     s = sub.add_parser("interlocks", help="list patent-first interlocks")
     s.add_argument("bundle_id", nargs="?", default=None)
